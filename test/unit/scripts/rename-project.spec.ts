@@ -41,9 +41,9 @@ describe('rename-project', () => {
     it('replaces every template identifier form', () => {
         // Arrange
         const content = [
-            "export const APP_NAME = 'nestjs-ddd';",
-            '[string]$ServiceName = "NestjsDddApiService",',
-            "export const SWAGGER_API_TITLE = 'NestJS DDD API';",
+            "export const APP_NAME = 'nestjs-ddd-lean';",
+            '[string]$ServiceName = "NestjsDddLeanApiService",',
+            "export const SWAGGER_API_TITLE = 'NestJS DDD Lean API';",
         ].join('\n');
 
         // Act

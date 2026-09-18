@@ -3,9 +3,9 @@
  * Plain TypeScript only (no enums/parameter properties) so Node can run it with type stripping.
  */
 
-export const TEMPLATE_NAME = 'nestjs-ddd';
-export const TEMPLATE_PASCAL = 'NestjsDdd';
-export const TEMPLATE_TITLE = 'NestJS DDD';
+export const TEMPLATE_NAME = 'nestjs-ddd-lean';
+export const TEMPLATE_PASCAL = 'NestjsDddLean';
+export const TEMPLATE_TITLE = 'NestJS DDD Lean';
 
 /** Files that carry the project identity. Docs examples are included so they match. */
 export const RENAME_FILES = [

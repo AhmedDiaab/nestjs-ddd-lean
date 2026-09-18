@@ -1,0 +1,99 @@
+# Testing
+
+## Commands
+
+| Command                             | What                                                                                                                                                                                          |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm test`                         | unit tests (`test/unit/**/*.spec.ts`)                                                                                                                                                         |
+| `pnpm test:watch` / `pnpm test:cov` | watch / coverage (`coverage/`); `test:cov` fails below the floor in `jest.config.ts`                                                                                                          |
+| `pnpm test:e2e`                     | e2e tests (`test/e2e/**/*.e2e-spec.ts`); boots `AppModule` over HTTP                                                                                                                          |
+| `pnpm test:oracle`                  | live Oracle tests (`test/integration/**/*.int-spec.ts`); skipped unless `ORACLE_IT_PASSWORD` is set, not part of `verify`                                                                     |
+| `pnpm test:service-scripts`         | runs `start-service.ps1`/`stop-service.ps1` in the PowerShell container with `nssm`, `node` and `Get-Service` faked; asserts the NSSM calls per scenario (needs Docker, not part of `verify`) |
+| `pnpm typecheck`                    | `tsc --noEmit` over `src` and `test`. **Jest only transpiles**, so type errors (and `@ts-expect-error` checks) are caught here                                                                |
+| `pnpm verify`                       | everything a change must pass: typecheck, lint, lint:test, circular, unit, e2e, build                                                                                                         |
+
+## Layout
+
+```text
+test/
+├── unit/          # mirrors src/: unit/domain, unit/application, unit/infrastructure, unit/interface, unit/layers
+├── e2e/           # HTTP tests
+├── integration/   # live database tests (pnpm test:oracle)
+├── windows-service/ # PowerShell checks for the NSSM scripts (pnpm test:service-scripts)
+├── fixtures/      # builders for config objects etc. (e.g. fixtures/database/oracle-source.ts)
+└── fakes/         # in-memory port implementations (added per feature)
+```
+
+Path aliases (`@domain`, `@src`, …) work in tests through `jest.config.ts` / `test/jest-e2e.json` `moduleNameMapper`. Import fakes and fixtures with relative paths.
+
+## Test structure
+
+Every test uses **Arrange-Act-Assert** with `// Arrange`, `// Act`, `// Assert` comments and one Act per test. Rules and examples: [Write tests](../guides/write-tests.md).
+
+## What to test where
+
+| Layer                         | Test style                                                                                                                                                              | Doubles                           |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| Domain                        | pure unit tests: rules, `Result` errors, events                                                                                                                         | none                              |
+| Application (use cases)       | construct the use case with **in-memory fakes** of its ports                                                                                                            | fakes in `test/fakes`             |
+| Infrastructure DAO/repository | mock `ConnectionProvider` so `withConnection`/`transaction` call `fn` with a mocked connection; assert SQL fragments, binds, options (`contextUser`, `tag`) and mapping | `jest.fn()`                       |
+| Infrastructure clients/config | mock `oracledb` pool/connection or build config with `databaseConfigSchema.parse(...)`                                                                                  | see `test/unit/infrastructure/**` |
+| Interface                     | unit-test interceptors/filters with fake `ExecutionContext`; test routes via e2e                                                                                        |                                   |
+| Wiring                        | `test/unit/layers/*` checks module imports/controllers                                                                                                                  |                                   |
+| HTTP end to end               | `Test.createTestingModule({ imports: [AppModule] })` + `.overrideProvider(Token).useValue(fake)` + supertest                                                            | fakes, signed JWT                 |
+
+## Continuous integration
+
+This template has no CI workflow: run `pnpm verify` (and `pnpm test:cov`, `pnpm format:check`) yourself before pushing, or wire up your own pipeline's equivalent of those commands.
+
+### Coverage floor
+
+`jest.config.ts` sets a global `coverageThreshold`; `pnpm test:cov` fails below it. It is a **floor, not a target**: when coverage rises, raise the numbers — never lower them to make a change pass, which is the lint-rule rule ([Boundaries](../../AGENTS.md)) applied to tests. Raise it in the same commit that adds the tests, so the number never drifts back down quietly.
+
+Coverage counts lines executed, not behaviour checked. A test that runs code without asserting anything raises coverage and catches nothing, so treat the floor as the low bar and prove the important tests bite by breaking the code they cover ([Write tests](../guides/write-tests.md)).
+
+## Existing coverage worth knowing
+
+- `oracle.client.spec.ts`: context user set/clear/drop lifecycle, timeouts, execute defaults, error mapping, transactions.
+- `pool.manager.spec.ts`: pool creation, placeholder skipping, required-source failures, health.
+- `load-config.spec.ts`: defaults for unset env, list/bool parsing, **no secrets in errors**.
+- `provider.factory.spec.ts`: typed-token binding checks (`@ts-expect-error`, verified by `pnpm typecheck`).
+- `app.e2e-spec.ts`: envelope, request id, health, 404, 401 without a database.
+- `tickets.int-spec.ts` (live, `example/tickets` branch): the Tickets MERGE upsert (insert and update), lookup, and filtered paging with the whitelisted `ORDER BY` against a real `tickets` table.
+- `oracle.client.int-spec.ts` (live): `CLIENT_IDENTIFIER` visible inside the call and `NULL` on the next borrow of the **same session** (pool of 1), also after the callback throws; byte truncation; commit/rollback; `ORA-00001` → `ConflictError`.
+
+## Live Oracle tests
+
+Run against any Oracle the user can create tables in, e.g. a local `gvenzl/oracle-free` container:
+
+```bash
+docker run -d -p 1521:1521 -e ORACLE_PASSWORD=<sys password> -e APP_USER=app \
+    -e APP_USER_PASSWORD=<app user password> gvenzl/oracle-free:23-slim-faststart
+ORACLE_IT_PASSWORD=<app user password> pnpm test:oracle
+```
+
+| Env                        | Default                   |
+| -------------------------- | ------------------------- |
+| `ORACLE_IT_PASSWORD`       | unset → suite skipped     |
+| `ORACLE_IT_USER`           | `app`                     |
+| `ORACLE_IT_CONNECT_STRING` | `localhost:1521/FREEPDB1` |
+
+The suite creates and drops its own `IT_ORACLE_CLIENT_<timestamp>` table. Run it after changing `OracleClient`, `oracle-pool.options.ts` or the error mapper.
+
+## E2E environment
+
+E2E tests set env in `beforeAll` before compiling the module:
+
+```ts
+Object.assign(process.env, {
+    NODE_ENV: 'test', // dotenv files are not loaded
+    JWT_SECRET: 'e2e-secret-that-is-at-least-32-chars',
+    LOGGING_TO_FILE: 'false',
+    LOG_LEVEL: 'error',
+});
+delete process.env.DATABASE_CONFIG_JSON; // no pools
+```
+
+Remember `app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' })`: `main.ts` isn't executed in tests.
+
+Step by step: [Write tests](../guides/write-tests.md).
