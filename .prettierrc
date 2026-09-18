@@ -1,0 +1,17 @@
+{
+    "plugins": ["@ianvs/prettier-plugin-sort-imports"],
+    "printWidth": 100,
+    "tabWidth": 4,
+    "useTabs": false,
+    "semi": true,
+    "singleQuote": true,
+    "trailingComma": "all",
+    "bracketSpacing": true,
+    "arrowParens": "always",
+    "endOfLine": "lf",
+    "quoteProps": "as-needed",
+    "proseWrap": "preserve",
+    "embeddedLanguageFormatting": "auto",
+    "importOrder": ["^(node:.*)$", "^[^./].*$", "^@nestjs/(.*)$", "^@/(.*)$", "^~/(.*)$", "^[./]"],
+    "importOrderParserPlugins": ["typescript", "decorators-legacy"]
+}

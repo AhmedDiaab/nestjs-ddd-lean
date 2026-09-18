@@ -1,0 +1,36 @@
+import { ApplicationModule } from '@application';
+import { ProviderFactory } from '@common/factories';
+import { DatabaseInfoController, HealthController } from '@interface/http/controllers';
+import { CsrfGuard, JwtGuard, RolesGuard } from '@interface/http/guards';
+import { Module, type MiddlewareConsumer, type NestModule } from '@nestjs/common';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { FallbackController } from './http/common/fallback/fallback.controller';
+import { ResponseFormatterInterceptor } from './http/common/interceptors/response-formatter.interceptor';
+import { ErrorPresenter } from './http/error-presenter';
+import { GlobalExceptionFilter } from './http/global-exception.filter';
+import { ZodHttpInterceptor } from './http/interceptors/zod-http.interceptor';
+import { RequestIdMiddleware } from './http/middleware';
+
+@Module({
+    imports: [ApplicationModule],
+    // FallbackController must stay last: its catch-all route would shadow later controllers
+    controllers: [HealthController, DatabaseInfoController, FallbackController],
+    providers: [
+        ErrorPresenter,
+        ProviderFactory.class(APP_GUARD, CsrfGuard),
+        // authentication is global: routes open up with @Public(), they don't opt in
+        ProviderFactory.class(APP_GUARD, JwtGuard),
+        // roles from the token; routes without @Roles() are unaffected
+        ProviderFactory.class(APP_GUARD, RolesGuard),
+        ProviderFactory.class(APP_INTERCEPTOR, ZodHttpInterceptor),
+        ProviderFactory.class(APP_INTERCEPTOR, ResponseFormatterInterceptor),
+        ProviderFactory.class(APP_FILTER, GlobalExceptionFilter),
+    ],
+    exports: [ErrorPresenter],
+})
+export class InterfaceModule implements NestModule {
+    configure(consumer: MiddlewareConsumer): void {
+        // every route, including the fallback: a 404 is worth correlating too
+        consumer.apply(RequestIdMiddleware).forRoutes('*all');
+    }
+}
