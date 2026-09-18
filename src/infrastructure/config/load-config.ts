@@ -6,6 +6,7 @@ import {
     jwtSchema,
     loggingSchema,
     shutdownSchema,
+    ticketsSchema,
 } from '@infrastructure/config/schemas';
 import { z } from 'zod';
 import { envBool, envList, envString } from './env.util';
@@ -19,6 +20,7 @@ const rootSchema = z.object({
     database: databaseConfigSchema.optional(),
     jwt: jwtSchema,
     shutdown: shutdownSchema,
+    tickets: ticketsSchema,
 });
 
 // hydrate from process.env once, then validate
@@ -90,6 +92,10 @@ function hydrate() {
         shutdown: {
             drainDelayMs: envString(env.SHUTDOWN_DRAIN_DELAY_MS),
             forceAfterMs: envString(env.SHUTDOWN_FORCE_AFTER_MS),
+        },
+        tickets: {
+            maxPageSize: envString(env.TICKETS_MAX_PAGE_SIZE),
+            allowCloseByOthers: envBool(env.TICKETS_ALLOW_CLOSE_BY_OTHERS),
         },
     };
 }

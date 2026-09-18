@@ -1,4 +1,12 @@
 export {
+    type AccountGateway,
+    AccountGatewayToken,
+    type GatewayOptions,
+    type SuspendAccountCommand,
+    type SuspendAccountFailure,
+} from './gateways';
+
+export {
     type ConfigKey,
     type ConfigPort,
     type ConfigValue,
@@ -12,8 +20,16 @@ export { ConfigPortToken, LoggerPortToken } from './tokens';
 export { type ShutdownPort, ShutdownPortToken } from './shutdown.port';
 
 export {
+    type AccountQueryPort,
+    AccountQueryPortToken,
+    type AccountSummary,
     type DatabaseInfo,
     type DatabaseInfoQueryPort,
     DatabaseInfoQueryPortToken,
     type QueryOptions,
+    type TicketListFilter,
+    type TicketQueryPort,
+    TicketQueryPortToken,
+    type TicketSort,
+    type TicketSummary,
 } from './queries';

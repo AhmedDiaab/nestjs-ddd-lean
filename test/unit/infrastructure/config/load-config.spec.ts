@@ -92,4 +92,29 @@ describe('loadConfig', () => {
         expect(text).not.toContain('TopSecret');
         expect(text).not.toContain('short-secret-value');
     });
+
+    it('loads the tickets section with defaults', () => {
+        // Arrange: only BASE_ENV is set
+
+        // Act
+        const config = loadConfig();
+
+        // Assert
+        expect(config.tickets).toEqual({ maxPageSize: 100, allowCloseByOthers: true });
+    });
+
+    it('loads the tickets section overrides', () => {
+        // Arrange
+        process.env = {
+            ...BASE_ENV,
+            TICKETS_MAX_PAGE_SIZE: '50',
+            TICKETS_ALLOW_CLOSE_BY_OTHERS: 'false',
+        };
+
+        // Act
+        const config = loadConfig();
+
+        // Assert
+        expect(config.tickets).toEqual({ maxPageSize: 50, allowCloseByOthers: false });
+    });
 });

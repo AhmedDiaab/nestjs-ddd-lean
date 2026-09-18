@@ -1,6 +1,10 @@
 import { ApplicationModule } from '@application';
 import { ProviderFactory } from '@common/factories';
-import { DatabaseInfoController, HealthController } from '@interface/http/controllers';
+import {
+    DatabaseInfoController,
+    HealthController,
+    TicketsController,
+} from '@interface/http/controllers';
 import { CsrfGuard, JwtGuard, RolesGuard } from '@interface/http/guards';
 import { Module, type MiddlewareConsumer, type NestModule } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
@@ -14,7 +18,7 @@ import { RequestIdMiddleware } from './http/middleware';
 @Module({
     imports: [ApplicationModule],
     // FallbackController must stay last: its catch-all route would shadow later controllers
-    controllers: [HealthController, DatabaseInfoController, FallbackController],
+    controllers: [HealthController, DatabaseInfoController, TicketsController, FallbackController],
     providers: [
         ErrorPresenter,
         ProviderFactory.class(APP_GUARD, CsrfGuard),

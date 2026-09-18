@@ -18,3 +18,5 @@ export { type LoggingConfig, loggingSchema } from './logging.schema';
 export { type JWTConfig, jwtSchema } from './jwt.schema';
 
 export { type ShutdownConfig, shutdownSchema } from './shutdown.schema';
+
+export { type TicketsConfig, ticketsSchema } from './tickets.schema';
