@@ -15,7 +15,7 @@
         "start:dev": "cross-env NODE_ENV=development nest start --watch",
         "start:repl": "cross-env NODE_ENV=development nest start --entryFile repl",
         "start:debug": "cross-env NODE_ENV=development nest start --debug --watch",
-        "start:prod": "node dist/main",
+        "start:prod": "node --enable-source-maps dist/main",
         "lint": "eslint \"{src,apps,libs}/**/*.ts\" --ignore-pattern \"**/*.spec.ts\"",
         "lint:test": "eslint \"test/**/*.ts\"",
         "lint:fix": "eslint . --fix",
