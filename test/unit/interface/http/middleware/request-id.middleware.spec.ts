@@ -16,8 +16,11 @@ function requestWith(headerValue?: string): Request {
     } as unknown as Request;
 }
 
-function fakeResponse(): Response & { setHeader: jest.Mock } {
-    return { setHeader: jest.fn() } as unknown as Response & { setHeader: jest.Mock };
+/** `setHeader` is returned alongside `res`, not read off it, so assertions never touch an
+ * unbound method through a `Response`-typed reference. */
+function fakeResponse(): { res: Response; setHeader: jest.Mock } {
+    const setHeader = jest.fn();
+    return { res: { setHeader } as unknown as Response, setHeader };
 }
 
 describe('RequestIdMiddleware', () => {
@@ -25,7 +28,7 @@ describe('RequestIdMiddleware', () => {
         // Arrange
         const sut = new RequestIdMiddleware(config);
         const req = requestWith('caller-supplied-id');
-        const res = fakeResponse();
+        const { res } = fakeResponse();
         const next: NextFunction = jest.fn();
 
         // Act
@@ -40,7 +43,7 @@ describe('RequestIdMiddleware', () => {
         // Arrange
         const sut = new RequestIdMiddleware(config);
         const req = requestWith('x'.repeat(500));
-        const res = fakeResponse();
+        const { res } = fakeResponse();
         const next: NextFunction = jest.fn();
 
         // Act
@@ -55,21 +58,21 @@ describe('RequestIdMiddleware', () => {
         // Arrange
         const sut = new RequestIdMiddleware(config);
         const req = requestWith('caller-supplied-id');
-        const res = fakeResponse();
+        const { res, setHeader } = fakeResponse();
         const next: NextFunction = jest.fn();
 
         // Act
         sut.use(req, res, next);
 
         // Assert
-        expect(res.setHeader).toHaveBeenCalledWith('x-request-id', 'caller-supplied-id');
+        expect(setHeader).toHaveBeenCalledWith('x-request-id', 'caller-supplied-id');
     });
 
     it('calls next', () => {
         // Arrange
         const sut = new RequestIdMiddleware(config);
         const req = requestWith();
-        const res = fakeResponse();
+        const { res } = fakeResponse();
         const next: NextFunction = jest.fn();
 
         // Act
