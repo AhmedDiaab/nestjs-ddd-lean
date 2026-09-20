@@ -9,6 +9,12 @@ stay easy to scan.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-09-20
+
+First tagged release of the lean template. Nothing was tagged before it, so this version is
+the template as it stands: what it kept when it was trimmed out of `nestjs-ddd`, plus the two
+syncs that followed. It tracks its own version line, not the full template's.
+
 ### Added
 
 - Error logs now carry `origin` (and `causeOrigin`, when the error's `cause` chain has a
@@ -99,6 +105,35 @@ stay easy to scan.
   `commitlint.config.mjs` (copied from the full template unchanged; verified against every commit
   in this repository's history before landing). See `docs/known-gaps.md` § 0.
 
+Everything else the template already shipped:
+
+- Layered/DDD architecture (`interface → application → domain`, infrastructure behind ports)
+  enforced by ESLint import rules, `madge` cycle checks and typed DI tokens that make a wrong
+  binding fail to compile.
+- Domain building blocks (`Entity`, `ValueObject`, `AggregateRoot`, domain errors) and use cases
+  that return a typed `Result` for expected failures instead of throwing.
+- A multi-source database layer (Oracle implemented; other dialects as placeholders) with pool
+  tuning, boot pings with retry, a readiness probe, `transaction()` per call (one connection per
+  call, no unit of work spanning several repositories), and the acting user carried as Oracle's
+  `CLIENT_IDENTIFIER` per query.
+- Repositories for aggregates, query ports + DAOs for reads, and gateway ports for another team's
+  procedures ([glossary](docs/glossary.md)).
+- An HTTP interface with a consistent `{ success, data, meta }` envelope, Zod-validated
+  request/response schemas, versioned routes, JWT auth enforced globally (`@Public()` opt-out,
+  `@Roles()` for token-carried roles), and CSRF protection for cookie auth.
+- Errors mapped to real HTTP statuses by problem kind, for both returned `Result` failures and
+  thrown errors, with internals and ORA codes never reaching clients.
+- Security defaults: helmet, a CORS allow-list, and body-size limits.
+- Structured pino logging with request correlation, rotation, redaction and silent successful
+  health polls; a graceful shutdown sequence that fails readiness first and closes database pools
+  last; Windows service scripts (NSSM).
+- Unit, e2e, live-Oracle and Windows-service-script test suites, in-memory fakes, and one
+  `pnpm verify` gate.
+- Agent-ready conventions: `AGENTS.md`, Claude Code skills, an architecture-reviewer subagent, and
+  enforced patterns (AAA tests, named barrel exports, one thing per file).
+- `pnpm rename-project` to set a new project's name everywhere; guides for migrating a legacy
+  service and for databases owned by another team.
+
 ### Changed
 
 - `EnvConfigAdapter`'s constructor now optionally accepts an already-loaded `AppConfig`, so
@@ -149,39 +184,6 @@ undefined`. Real environment variables still win over the file.
 
 - The unused `source-map-support` devDependency — `--enable-source-maps` (a native `node` flag,
   no dependency) now serves the same purpose for the built-in error `origin`/`causeOrigin`.
-
-## [1.0.0]
-
-Baseline: what this template ships out of the box.
-
-### Added
-
-- Layered/DDD architecture (`interface → application → domain`, infrastructure behind ports)
-  enforced by ESLint import rules, `madge` cycle checks and typed DI tokens that make a wrong
-  binding fail to compile.
-- Domain building blocks (`Entity`, `ValueObject`, `AggregateRoot`, domain errors) and use cases
-  that return a typed `Result` for expected failures instead of throwing.
-- A multi-source database layer (Oracle implemented; other dialects as placeholders) with pool
-  tuning, boot pings with retry, a readiness probe, `transaction()` per call (one connection per
-  call, no unit of work spanning several repositories), and the acting user carried as Oracle's
-  `CLIENT_IDENTIFIER` per query.
-- Repositories for aggregates, query ports + DAOs for reads, and gateway ports for another team's
-  procedures ([glossary](docs/glossary.md)).
-- An HTTP interface with a consistent `{ success, data, meta }` envelope, Zod-validated
-  request/response schemas, versioned routes, JWT auth enforced globally (`@Public()` opt-out,
-  `@Roles()` for token-carried roles), and CSRF protection for cookie auth.
-- Errors mapped to real HTTP statuses by problem kind, for both returned `Result` failures and
-  thrown errors, with internals and ORA codes never reaching clients.
-- Security defaults: helmet, a CORS allow-list, and body-size limits.
-- Structured pino logging with request correlation, rotation, redaction and silent successful
-  health polls; a graceful shutdown sequence that fails readiness first and closes database pools
-  last; Windows service scripts (NSSM).
-- Unit, e2e, live-Oracle and Windows-service-script test suites, in-memory fakes, and one
-  `pnpm verify` gate.
-- Agent-ready conventions: `AGENTS.md`, Claude Code skills, an architecture-reviewer subagent, and
-  enforced patterns (AAA tests, named barrel exports, one thing per file).
-- `pnpm rename-project` to set a new project's name everywhere; guides for migrating a legacy
-  service and for databases owned by another team.
 
 [Unreleased]: https://github.com/AhmedDiaab/nestjs-ddd-lean/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/AhmedDiaab/nestjs-ddd-lean/releases/tag/v1.0.0
