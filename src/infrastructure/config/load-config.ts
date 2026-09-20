@@ -6,7 +6,9 @@ import {
     jwtSchema,
     loggingSchema,
     shutdownSchema,
+    tlsSchema,
 } from '@infrastructure/config/schemas';
+import { config as dotenvFlow } from 'dotenv-flow';
 import { z } from 'zod';
 import { envBool, envList, envString } from './env.util';
 import { InvalidConfigError } from './invalid-config.error';
@@ -19,6 +21,7 @@ const rootSchema = z.object({
     database: databaseConfigSchema.optional(),
     jwt: jwtSchema,
     shutdown: shutdownSchema,
+    tls: tlsSchema,
 });
 
 // hydrate from process.env once, then validate
@@ -91,13 +94,35 @@ function hydrate() {
             drainDelayMs: envString(env.SHUTDOWN_DRAIN_DELAY_MS),
             forceAfterMs: envString(env.SHUTDOWN_FORCE_AFTER_MS),
         },
+        tls: {
+            enabled: envBool(env.TLS_ENABLED),
+            keyFile: envString(env.TLS_KEY_FILE),
+            certFile: envString(env.TLS_CERT_FILE),
+            caFile: envString(env.TLS_CA_FILE),
+            passphrase: envString(env.TLS_PASSPHRASE),
+            minVersion: envString(env.TLS_MIN_VERSION),
+        },
     };
 }
 
 export type AppConfig = z.infer<typeof rootSchema>;
 
+/**
+ * Reads `.env.<NODE_ENV>` into `process.env` before anything validates it. It lives here, not in
+ * an adapter, because `loadConfig()` is called from two places — `EnvConfigAdapter` under DI, and
+ * `main.ts` before Nest exists, to build `httpsOptions` — and whichever runs first must see the
+ * file. Skipped under test, where specs set `process.env` themselves and must not pick up a
+ * developer's local file. Existing variables always win, so a real environment variable beats the
+ * file, which is what container and service deployments rely on.
+ */
+function loadEnvFiles(): void {
+    if (['test', 'testing'].includes(env.NODE_ENV as string)) return;
+    dotenvFlow({ silent: true });
+}
+
 /** Validates env into a typed config. Values are never included in errors (they may be secrets). */
 export function loadConfig(): AppConfig {
+    loadEnvFiles();
     const parsed = rootSchema.safeParse(hydrate());
     if (!parsed.success) {
         throw new InvalidConfigError(

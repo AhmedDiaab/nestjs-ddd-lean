@@ -57,6 +57,21 @@ Adding a variable: [Add a config variable](../guides/add-config-variable.md).
 | `CSRF_ENABLED`                                              | `true`                          | reject cross-site POST/PUT/PATCH/DELETE authenticated by the JWT cookie ([HTTP interface](http-interface.md#security-defaults)) |
 | `CSRF_TRUSTED_ORIGINS`                                      | `CORS_ORIGINS`                  | origins allowed to send cookie-authenticated writes, besides the API's own                                                      |
 
+### TLS
+
+Optional in-process TLS termination — off by default, since a load balancer/VIP usually terminates TLS instead ([Operations → TLS](operations.md#tls)).
+
+| Variable          | Default   | Notes                                                                   |
+| ----------------- | --------- | ----------------------------------------------------------------------- |
+| `TLS_ENABLED`     | `false`   | terminate TLS in this process instead of a load balancer/VIP            |
+| `TLS_KEY_FILE`    | –         | path to the PEM private key; required when `TLS_ENABLED=true`           |
+| `TLS_CERT_FILE`   | –         | path to the PEM certificate (chain); required when `TLS_ENABLED=true`   |
+| `TLS_CA_FILE`     | –         | path to an extra PEM trust chain; optional even when `TLS_ENABLED=true` |
+| `TLS_PASSPHRASE`  | –         | decrypts an encrypted private key; treat as a secret, never logged      |
+| `TLS_MIN_VERSION` | `TLSv1.2` | `TLSv1.2` \| `TLSv1.3`                                                  |
+
+A bad or missing path fails at boot: `loadTlsOptions` (`src/infrastructure/tls/load-tls-options.ts`) reads the files once, before Nest starts, and throws `InvalidConfigError` naming the path, never the file's contents.
+
 ### Shutdown
 
 | Variable                  | Default | Notes                                                                                                         |

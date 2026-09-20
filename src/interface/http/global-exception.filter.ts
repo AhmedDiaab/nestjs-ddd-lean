@@ -1,6 +1,6 @@
 import type { ConfigPort, LoggerPort } from '@application/ports';
 import { ConfigPortToken, LoggerPortToken } from '@application/ports';
-import { formatStackTrace } from '@common/utils';
+import { formatStackTrace, resolveErrorOrigin } from '@common/utils';
 import {
     Catch,
     HttpException,
@@ -25,7 +25,8 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
     /**
      * 5xx are always logged (with the cause chain); 4xx only as warn.
-     * Stack traces are included only when SHOW_STACK_TRACES=true.
+     * `origin`/`causeOrigin` (the app frame that threw) are always on; the full stack is
+     * included only when SHOW_STACK_TRACES=true.
      */
     private log(exception: unknown, status: number, req: Request, requestId: string): void {
         if (status < 400) return;
@@ -34,6 +35,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         const error = exception instanceof Error ? exception : undefined;
         const cause = (error as { cause?: unknown } | undefined)?.cause;
         const message = `[${requestId}] ${req.method} ${req.originalUrl} -> ${status} - ${error?.message ?? String(exception)}`;
+        const { origin, causeOrigin } = resolveErrorOrigin(exception);
 
         const meta = {
             correlationId: requestId,
@@ -41,6 +43,8 @@ export class GlobalExceptionFilter implements ExceptionFilter {
             errorName: error?.name,
             cause:
                 cause instanceof Error ? { name: cause.name, message: cause.message } : undefined,
+            origin,
+            causeOrigin,
             stack: showStack ? formatStackTrace(error?.stack) : undefined,
         };
 
@@ -74,9 +78,9 @@ export class GlobalExceptionFilter implements ExceptionFilter {
                 return;
             }
 
-            const body = isRecord(rawResponse)
-                ? rawResponse
-                : { message: String(rawResponse as unknown) };
+            // A non-record response is either a string Nest was given, or a list of messages a
+            // pipe produced; anything else has no message worth showing and falls back to the status.
+            const body = isRecord(rawResponse) ? rawResponse : { message: toMessage(rawResponse) };
 
             const message = Array.isArray(body.message)
                 ? body.message.join('; ')
@@ -138,4 +142,13 @@ function asExposedClientError(
         message: typeof e.message === 'string' ? e.message : (HttpStatus[e.status] ?? 'Error'),
         type: typeof e.type === 'string' ? e.type : undefined,
     };
+}
+
+/** A non-record `HttpException` response carries a message only when it is a string or a list of them. */
+function toMessage(response: unknown): string | undefined {
+    if (typeof response === 'string') return response;
+    if (Array.isArray(response) && response.every((item) => typeof item === 'string')) {
+        return response.join('; ');
+    }
+    return undefined;
 }
