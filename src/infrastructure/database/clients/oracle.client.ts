@@ -80,7 +80,7 @@ export class OracleClient implements DatabaseClient {
                     this.logger.warn('db.rollback.failed', {
                         sourceKey: this.sourceKey,
                         tag: options?.tag,
-                        err: rollbackError,
+                        error: rollbackError,
                     });
                 }
                 throw e;
@@ -155,7 +155,7 @@ export class OracleClient implements DatabaseClient {
                 this.logger.warn('db.context.clear.failed', {
                     sourceKey: this.sourceKey,
                     action: 'drop-connection',
-                    err: e,
+                    error: e,
                 });
             }
         }
@@ -164,7 +164,10 @@ export class OracleClient implements DatabaseClient {
             connection.callTimeout = this.source.callTimeoutMs;
             await connection.close({ drop });
         } catch (e) {
-            this.logger.warn('db.connection.release.failed', { sourceKey: this.sourceKey, err: e });
+            this.logger.warn('db.connection.release.failed', {
+                sourceKey: this.sourceKey,
+                error: e,
+            });
         }
     }
 
