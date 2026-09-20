@@ -67,6 +67,14 @@ stay easy to scan.
   only from a string or a list of strings — anything else falls back to the status name instead of
   being stringified into `"[object Object]"`.
 
+### Fixed
+
+- Reading `.env.<NODE_ENV>` moved from `EnvConfigAdapter`'s constructor into `loadConfig()`. The
+  TLS work added a `loadConfig()` call in `main.ts`, before Nest exists, so the earliest parse saw
+  a bare environment and any deployment keeping its secrets in the file — `pnpm start:dev` and the
+  Windows service setup both do — failed to boot with `jwt.secret: expected string, received
+undefined`. Real environment variables still win over the file.
+
 ### Removed
 
 - The unused `source-map-support` devDependency — `--enable-source-maps` (a native `node` flag,
