@@ -15,6 +15,8 @@ export {
 
 export { type HttpConfig, httpSchema } from './http.schema';
 
+export { type LegacyConfig, legacySchema } from './legacy.schema';
+
 export { type LoggingConfig, loggingSchema } from './logging.schema';
 
 export { type JWTConfig, jwtSchema } from './jwt.schema';

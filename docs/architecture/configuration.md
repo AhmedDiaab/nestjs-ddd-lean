@@ -94,6 +94,31 @@ Multi-core scaling on a single box via Node's built-in `cluster` module — no e
 
 With more than one worker, the primary logs the pool capacity arithmetic (`poolMax × workers`) for every configured database source before any worker is forked (`runClusterBootRails`) — the same number [Migrate a legacy service](../guides/migrate-a-legacy-service.md) already warns about for several separate instances; check it against what the DBA allows. Full's version of this rail also fails boot for `IDEMPOTENCY_STORE=memory` with more than one worker and warns for `THROTTLE_STORAGE=memory`; lean has neither an idempotency store nor throttling, so neither check exists here. See [decision 0012](../decisions/0012-cluster-primary-owns-forking.md).
 
+### Legacy forwarding
+
+Forwards paths not yet migrated off a legacy service to it (option B, "new service in front" —
+[Migrate a legacy service](../guides/migrate-a-legacy-service.md)). Off by default; a dumb hop, not
+a gateway — see [decision 0013](../decisions/0013-legacy-forwarder-is-dumb-transport.md).
+
+| Variable                      | Default | Notes                                                                                                                                                              |
+| ----------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `LEGACY_FORWARD_ENABLED`      | `false` | requires `LEGACY_TARGET_URL` and at least one `LEGACY_FORWARD_PREFIXES` entry when `true`                                                                          |
+| `LEGACY_TARGET_URL`           | –       | base URL of the legacy service, e.g. `http://legacy-host:8080`                                                                                                     |
+| `LEGACY_FORWARD_PREFIXES`     | `[]`    | comma-separated path prefixes forwarded as-is; everything else still answers through this app (`FallbackController` still returns 404 for genuinely unknown paths) |
+| `LEGACY_TIMEOUT_MS`           | `10000` | per request to the legacy service; keep it below a typical VIP's request timeout (often 30-60s)                                                                    |
+| `LEGACY_PRESERVE_HOST_HEADER` | `false` | forward the client's original `Host` header instead of the legacy target's                                                                                         |
+
+Wired with `app.use()` in `src/main.ts` — the composition root, not `src/interface` (the ESLint
+layer fence forbids the interface layer from importing infrastructure) — immediately after
+`helmet()` and before the body parsers, so the raw request stream is still intact when it reaches
+the forwarder. Consequently it also runs before `RequestIdMiddleware`, so it resolves its own
+request id from `REQUEST_ID_HEADER`, generating one when the caller sent none
+(`src/infrastructure/legacy/legacy-forwarder.ts`). Bodies stream through with `node:http`/
+`node:https`, never buffered. A transport failure on this hop becomes 502 (connection refused,
+DNS, reset socket) or 504 (timeout); any status the legacy service actually returned, including
+4xx and 5xx, passes through unchanged. Failures log `legacy.forward.failed` with the method, path
+and status only, never a body or header.
+
 ### Shutdown
 
 | Variable                  | Default | Notes                                                                                                         |
