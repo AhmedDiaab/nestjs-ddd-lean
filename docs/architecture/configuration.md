@@ -72,14 +72,22 @@ Optional in-process TLS termination — off by default, since a load balancer/VI
 
 A bad or missing path fails at boot: `loadTlsOptions` (`src/infrastructure/tls/load-tls-options.ts`) reads the files once, before Nest starts, and throws `InvalidConfigError` naming the path, never the file's contents.
 
+### Scheduler
+
+| Variable             | Default | Notes                                                                                            |
+| -------------------- | ------- | ------------------------------------------------------------------------------------------------ |
+| `SCHEDULER_ENABLED`  | `false` | run the cron jobs in this instance ([Operations → Scheduled jobs](operations.md#scheduled-jobs)) |
+| `SCHEDULER_TIMEZONE` | `UTC`   | IANA timezone the cron expressions are read in                                                   |
+
 ### Shutdown
 
 | Variable                  | Default | Notes                                                                                                         |
 | ------------------------- | ------- | ------------------------------------------------------------------------------------------------------------- |
 | `SHUTDOWN_DRAIN_DELAY_MS` | `5000`  | readiness fails for this long before the server closes; set it above the load balancer's interval × threshold |
 | `SHUTDOWN_FORCE_AFTER_MS` | `10000` | in-flight requests get this long, then their connections are cut                                              |
+| `SHUTDOWN_JOB_DRAIN_MS`   | `10000` | an in-flight cron job gets this long to finish before the database pools close                                |
 
-The process manager's stop grace period must exceed both, plus the pool `drainTimeSec` ([Operations → Graceful shutdown](operations.md#graceful-shutdown)).
+The process manager's stop grace period must exceed all three, plus the pool `drainTimeSec` ([Operations → Graceful shutdown](operations.md#graceful-shutdown)).
 
 ### JWT
 

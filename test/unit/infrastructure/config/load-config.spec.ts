@@ -77,6 +77,34 @@ describe('loadConfig', () => {
         expect(config.http.corsOrigins).toEqual(['https://a.example', 'https://b.example']);
     });
 
+    it('loads scheduler config from env, defaulting to disabled', () => {
+        // Arrange: only BASE_ENV is set
+
+        // Act
+        const config = loadConfig();
+
+        // Assert
+        expect(config.scheduler).toMatchObject({ enabled: false, timezone: 'UTC' });
+        expect(config.shutdown.jobDrainMs).toBe(10000);
+    });
+
+    it('parses scheduler and job-drain overrides from env', () => {
+        // Arrange
+        process.env = {
+            ...BASE_ENV,
+            SCHEDULER_ENABLED: 'true',
+            SCHEDULER_TIMEZONE: 'Africa/Cairo',
+            SHUTDOWN_JOB_DRAIN_MS: '2000',
+        };
+
+        // Act
+        const config = loadConfig();
+
+        // Assert
+        expect(config.scheduler).toMatchObject({ enabled: true, timezone: 'Africa/Cairo' });
+        expect(config.shutdown.jobDrainMs).toBe(2000);
+    });
+
     it('loads database config with health list and oracle driver options', () => {
         // Arrange
         process.env = {

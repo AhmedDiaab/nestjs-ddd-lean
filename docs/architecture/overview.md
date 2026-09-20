@@ -68,6 +68,7 @@ src/
 │   ├── pipes/ schemas/ swagger/
 │   ├── error-presenter.ts  # problem kind → HTTP status
 │   └── global-exception.filter.ts
+├── interface/scheduler/    # cron jobs (ScheduledJob, JobRunner, JobScheduler), off unless SCHEDULER_ENABLED
 ├── common/                 # ProviderFactory, UseCase base, utils
 └── shared/                 # Result, problem, envelope, pagination, typed tokens
 test/
@@ -81,12 +82,13 @@ test/
 `AppModule` is the only place that wires layers together:
 
 ```ts
-@Module({ imports: [InfrastructureModule, ApplicationModule, InterfaceModule], ... })
+@Module({ imports: [InfrastructureModule, ApplicationModule, InterfaceModule, SchedulerModule], ... })
 ```
 
 - `InfrastructureModule` imports `ConfigModule`, `PinoLoggerModule`, `DatabaseModule` (all `@Global`) and `AuthModule`. Global modules export port tokens, so use cases can inject them without importing infrastructure.
 - `ApplicationModule` registers use cases only.
 - `InterfaceModule` imports `ApplicationModule` and registers controllers, the global guards, interceptors and the exception filter. `FallbackController` must stay **last** in `controllers` (its catch-all route shadows later ones).
+- `SchedulerModule` (`src/interface/scheduler`) registers cron jobs, off unless `SCHEDULER_ENABLED=true`.
 
 ## Request lifecycle
 

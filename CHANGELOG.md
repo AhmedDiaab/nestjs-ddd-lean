@@ -34,6 +34,21 @@ stay easy to scan.
   TLS.
 - `docs/decisions/0015-shared-files-between-the-two-templates.md`: the manual diff discipline
   between this repo and its upstream sibling, `nestjs-ddd`.
+- Cron scheduler (`SCHEDULER_ENABLED`, default `false`): `src/interface/scheduler/` runs jobs on
+  a schedule as a delivery mechanism, like a controller — it only calls a use case. `JobRunner`
+  catches a throwing job and logs `scheduler.job.failed` instead of crashing the process, and
+  skips a run while the previous one is still going (`scheduler.job.skipped`); `JobScheduler`
+  registers every job with `@nestjs/schedule`'s `SchedulerRegistry` in `SCHEDULER_TIMEZONE`
+  (default UTC) and, on shutdown, stops new runs immediately and waits up to
+  `SHUTDOWN_JOB_DRAIN_MS` (default 10s, new `shutdownSchema` field) for one already in flight
+  before logging `scheduler.drain.timeout` and letting the pools close anyway. Every instance
+  with the switch on runs every job — with several instances behind a load balancer, enable it on
+  exactly one. `runGracefulShutdown` (`src/infrastructure/lifecycle/graceful-shutdown.ts`) gained
+  an optional `drainJobs` hook, called after the HTTP server closes and before the application
+  (database pools) closes, since a job still needs the database. `start-service.ps1`'s
+  `$StopTimeoutMs` default rose from 15000 to 30000 to keep headroom above the now-longer drain
+  sequence. See [Add a scheduled job](docs/guides/add-a-scheduled-job.md) and
+  `docs/architecture/operations.md` § Scheduled jobs.
 
 ### Changed
 
