@@ -7,6 +7,25 @@ Terms: [Glossary](glossary.md). Rules the template does enforce: [Architecture o
 - **Reviewed**: 2026-09-18, against the initial commit.
 - **Scope**: the template itself. Business features built on top are out of scope.
 
+## 0. Closed since the last review
+
+**2026-09-20**: section 2's repository-hygiene row is closed. The repository now has a `LICENSE`
+(MIT, `package.json`'s `license` field matches, `private: true` untouched — the template is
+forked, not published to npm), a `CONTRIBUTING.md` written for someone who just forked it (setup,
+the `pnpm verify` gate and its own coverage floor, commit conventions, how the layer rules are
+actually enforced, the release process, decision records shared by number with the full template),
+and a `.github/PULL_REQUEST_TEMPLATE.md` with a checklist drawn from `AGENTS.md`'s definition of
+done. Commit linting and formatting now run **locally, on every commit**: `pnpm install` installs
+husky hooks (`prepare`), `pre-commit` runs `lint-staged` (ESLint then Prettier on staged files
+only, so a commit stays fast), and `commit-msg` runs commitlint against `commitlint.config.mjs` —
+verified against every commit in this repository's history before landing (0 errors, a couple of
+pre-existing footer-leading-blank warnings only), not just imagined. `--no-verify` still exists for
+emergencies. This template still has no CI (`.github/workflows`) or Dependabot — deliberately
+declined, see section 1 — so these hooks are the only enforcement short of a reviewer's own
+`pnpm verify` run; that gap is unchanged by this pass. What this also does not do: it doesn't add a
+CODEOWNERS file, branch protection, or a required-reviewers policy — those are GitHub repository
+settings, not something a commit can express, and are left for whoever owns the fork to decide.
+
 ## 1. Deliberate omissions
 
 Removed on purpose to keep the template small. If you need one, here's the cheapest way back in.
@@ -35,7 +54,6 @@ Weaknesses in what the template does provide.
 | 6   | **No migrations story.** Nothing, not even a stated position for the case where you _do_ own the schema. The "database you don't own" guide covers the opposite case well.                                                                                                                               |                                                                            | Pick a tool and write one page, or say clearly it's out of scope                                      |
 | 7   | **No disposable test database.** The live Oracle suite needs a database you set up by hand, so it runs rarely.                                                                                                                                                                                           |                                                                            | Testcontainers, or a documented one-command container                                                 |
 | 8   | **No multi-tenancy.** No tenant concept anywhere. The Oracle context user identifies the actor, not a tenant, and is not a data-scoping mechanism.                                                                                                                                                       |                                                                            | Add deliberately if you need it; retrofitting is expensive                                            |
-| 9   | **No repository hygiene files.** No LICENSE, CHANGELOG, CONTRIBUTING, pull-request template, commit linting or pre-commit hook — in a repository whose whole purpose is to be forked.                                                                                                                    |                                                                            | Conventions are currently enforced by reviewers and agents, not by tooling                            |
 
 ## 3. What I'd fix first
 

@@ -20,6 +20,7 @@ NestJS 11 lean starter template for layered / DDD HTTP services backed by Oracle
 | **Security**               | helmet, CORS allow-list, CSRF protection for cookie auth, body-size limits, no secrets in config errors or logs                                                                                                                                                                    |
 | **TLS**                    | optional in-process HTTPS (`TLS_ENABLED`, off by default) for deployments with no reverse proxy in front of the app — the Windows service install in particular; a bad key/cert path fails at boot                                                                                 |
 | **API docs**               | Swagger generated from the same Zod schemas that validate requests, off in production by default                                                                                                                                                                                   |
+| **Deprecation**            | `@Deprecated({ since, sunset, successor?, link? })` sends RFC 9745 `Deprecation`, RFC 8594 `Sunset` and `Link` headers and flags the route in Swagger; both dates required and validated at boot, with a written retirement policy                                                 |
 | **Configuration**          | env → Zod schemas → typed `config.get('http.port')`; unknown keys don't compile, invalid config fails at startup without printing values                                                                                                                                           |
 | **Logging**                | structured pino logs with request correlation, rotation, redaction, and silent successful health polls                                                                                                                                                                             |
 | **Graceful shutdown**      | readiness fails first so the load balancer stops routing, the instance keeps serving while it notices, in-flight requests finish, stragglers are cut, an in-flight cron job is drained, and the database pools close last                                                          |
@@ -28,6 +29,7 @@ NestJS 11 lean starter template for layered / DDD HTTP services backed by Oracle
 | **Operations**             | `/health` and `/health/ready` for monitors and load balancers, graceful shutdown with pool drain, Windows service scripts (NSSM)                                                                                                                                                   |
 | **Testing**                | unit, e2e, live Oracle and PowerShell suites; in-memory fakes; one `pnpm verify` gate                                                                                                                                                                                              |
 | **Agent-ready**            | `AGENTS.md`, Claude Code skills, a reviewer subagent, and enforced conventions (AAA tests, named barrel exports, one thing per file)                                                                                                                                               |
+| **Legacy forwarding**      | optional streaming forwarder (`LEGACY_FORWARD_ENABLED`, off by default) for paths not yet migrated off a legacy service: only configured prefixes are forwarded, bodies stream through unchanged, and the legacy status passes through as-is                                       |
 | **Project setup**          | `pnpm rename-project` sets the project name everywhere; guides for migrating a legacy service and for databases owned by another team                                                                                                                                              |
 
 ## Quick start
@@ -69,3 +71,12 @@ The project compiles with its own TypeScript (5.9) and with the TypeScript 6 bun
 | `pnpm test` / `test:e2e` / `test:cov` / `test:oracle`      | tests (`test:oracle` needs a database)                                                               |
 | `pnpm test:service-scripts`                                | check the Windows service scripts in a PowerShell container (needs Docker)                           |
 | `.\start-service.ps1` / `.\stop-service.ps1`               | Windows service via NSSM ([Operations](docs/architecture/operations.md#windows-service-nssm))        |
+
+## Contributing
+
+Forking this template? See [`CONTRIBUTING.md`](CONTRIBUTING.md) for setup, the `pnpm verify` gate,
+commit message conventions (enforced by commitlint) and how the release process works.
+
+## License
+
+[MIT](LICENSE) © 2026 Ahmed Diaab.

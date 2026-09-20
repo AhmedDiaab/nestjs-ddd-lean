@@ -25,13 +25,16 @@ worth comparing.
 drift. Keeping them in sync is a manual diff discipline: when either repo changes a file on the
 list below, check whether the change belongs in the other one too, adapting rather than copying
 blindly — lean omits whole subsystems (throttling, idempotency, metrics, domain events, the unit
-of work, the outbound HTTP client, request/trace context, database health, Docker, `.github/`),
-so a full-template change that touches one of those doesn't apply, and a lean-only file (its
-simpler `request-id.middleware.ts`, for instance) has no upstream counterpart to diff against at
-all. The scheduler and cluster mode are shared subsystems now (ported from full; see [decision
-0012](0012-cluster-primary-owns-forking.md)), but cluster mode's boot rails are not identical —
-lean's are reduced to the pool-capacity log, since it has no idempotency store or throttling to
-guard.
+of work, the outbound HTTP client, request/trace context, database health, Docker, `.github/`
+workflows), so a full-template change that touches one of those doesn't apply, and a lean-only
+file (its simpler `request-id.middleware.ts`, for instance) has no upstream counterpart to diff
+against at all. The scheduler and cluster mode are shared subsystems now (ported from full; see
+[decision 0012](0012-cluster-primary-owns-forking.md)), but cluster mode's boot rails are not
+identical — lean's are reduced to the pool-capacity log, since it has no idempotency store or
+throttling to guard. The legacy forwarder and `@Deprecated()` are shared subsystems too now (this
+sync; see [decision 0013](0013-legacy-forwarder-is-dumb-transport.md) and [decision
+0009](0009-deprecation-dates-live-on-the-route-not-config.md)) — both ported near-unchanged, since
+neither leans on a subsystem lean lacks.
 
 Files worth diffing when either repo changes them, because both currently carry the same content
 or the same shape:
@@ -66,19 +69,45 @@ or the same shape:
   guard; `release-worker-channel.util.ts` is ported unchanged, since it is load-bearing
   regardless); `docs/architecture/operations.md` § Process model and
   `docs/architecture/configuration.md` § Cluster; decision 0012 itself.
+- **The legacy forwarder**: `src/infrastructure/legacy/` (`matches-prefix.util.ts`,
+  `forward-headers.util.ts` including `stripHopByHopHeaders`, `legacy-forwarder.ts`, the barrel),
+  `src/infrastructure/config/schemas/legacy.schema.ts` and its wiring into `load-config.ts`'s
+  `rootSchema`/`hydrate()`, and the `app.use()` wiring in `src/main.ts` right after `helmet()` and
+  before the body parsers. Ported near-unchanged (this sync) — the one adaptation is that it
+  resolves its own request id ahead of lean's `RequestIdMiddleware` rather than full's
+  `RequestContextMiddleware`, same header (`logging.requestIdHeader`), different middleware name;
+  `docs/guides/migrate-a-legacy-service.md` § option B, `docs/architecture/configuration.md` §
+  Legacy forwarding, `.env.example`'s `LEGACY_*` block; decision 0013 itself.
+- **Deprecation headers**: `src/interface/http/common/deprecation-headers.util.ts`,
+  `src/interface/http/decorators/deprecated.decorator.ts`,
+  `src/interface/http/interceptors/deprecation.interceptor.ts`, their barrels. Ported
+  near-unchanged — the one adaptation is interceptor registration order in
+  `interface.module.ts`: full registers it between `MetricsInterceptor` and `ZodHttpInterceptor`,
+  lean has no metrics subsystem to run ahead of it, so it registers first among the interceptors,
+  keeping full's own reasoning (it only sets headers before `next.handle()`, so running it as
+  early as possible means the headers survive a later rejection);
+  `docs/guides/make-an-endpoint-deprecated.md`, `docs/architecture/http-interface.md` §
+  Deprecation; decision 0009 itself.
 - **Decision records**: see below — the numbering itself is shared.
 - **`package.json` devDependency versions** for the tools both repos use the same way: `eslint`,
-  `@eslint/js`, `prettier`, `typescript-eslint`, `eslint-plugin-prettier`, `jest`, `@types/*`.
-  Runtime dependencies are not on this list — lean's dependency set is intentionally smaller.
+  `@eslint/js`, `prettier`, `typescript-eslint`, `eslint-plugin-prettier`, `jest`, `@types/*`, and
+  now also `husky`, `lint-staged`, `@commitlint/cli`, `@commitlint/config-conventional`. Runtime
+  dependencies are not on this list — lean's dependency set is intentionally smaller.
+- **Repository hygiene**: `commitlint.config.mjs` (copied byte-for-byte — see its own comment
+  warning off a `subject-case` override), the `.husky/pre-commit`/`.husky/commit-msg` hooks and
+  `package.json`'s `lint-staged` block, and `CONTRIBUTING.md` (adapted — lean's own gate wording,
+  its own coverage floor, its own scope examples read from its own `git log`, and a pointer back
+  to this record for the shared-decision-number rule, rather than full's CI paragraph, since lean
+  has no `.github/workflows`).
 
 **Decision numbers mean the same decision in both repos.** `docs/decisions/000N-*.md` in
 `nestjs-ddd-lean` and the identically-numbered record in `nestjs-ddd` are either the same
 decision (content adapted to what each repo actually has) or the number is simply absent from
-lean's index. A gap in lean's sequence — currently 0009, 0012, 0013, 0014 — means that decision
-does not apply to lean (it covers a subsystem lean doesn't have, or a change lean's dependency
-versions don't need yet); it is never a missing file to chase down, and a number is never reused
-for an unrelated decision later. When a decision is ported, it keeps its upstream number here,
-even though lean's own sequence then has a gap where the skipped numbers would have been.
+lean's index. A gap in lean's sequence — currently only 0014 — means that decision does not apply
+to lean (it covers a subsystem lean doesn't have, or a change lean's dependency versions don't
+need yet); it is never a missing file to chase down, and a number is never reused for an unrelated
+decision later. When a decision is ported, it keeps its upstream number here, even though lean's
+own sequence then has a gap where the skipped numbers would have been.
 
 ## Consequences
 

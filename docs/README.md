@@ -17,6 +17,7 @@ Start here. Each link is one focused document.
 | Add business logic                                                             | [Add a use case](guides/add-use-case.md)                                          |
 | Expose an HTTP endpoint                                                        | [Add a controller](guides/add-controller.md)                                      |
 | Add a way of authenticating, or change where auth applies                      | [Add an authentication strategy](guides/add-an-auth-strategy.md)                  |
+| Tell clients a route is going away                                             | [Make an endpoint deprecated](guides/make-an-endpoint-deprecated.md)              |
 | Return a specific HTTP status for a failure                                    | [Add an error](guides/add-error.md)                                               |
 | Add an environment variable                                                    | [Add a config variable](guides/add-config-variable.md)                            |
 | Run work on a schedule (cron)                                                  | [Add a scheduled job](guides/add-a-scheduled-job.md)                              |
@@ -25,6 +26,7 @@ Start here. Each link is one focused document.
 | Test any of the above                                                          | [Write tests](guides/write-tests.md)                                              |
 | Run it as a Windows service or wire a monitoring tool                          | [Operations](architecture/operations.md)                                          |
 | Work on this repo with an AI agent                                             | [`AGENTS.md`](../AGENTS.md) and [Agentic development](agentic-development.md)     |
+| Contribute back to the template itself (setup, gate, commits, releases)        | [`CONTRIBUTING.md`](../CONTRIBUTING.md)                                           |
 | Know what the template does **not** do before adopting it                      | [Known gaps and open items](known-gaps.md)                                        |
 
 ## Reference
