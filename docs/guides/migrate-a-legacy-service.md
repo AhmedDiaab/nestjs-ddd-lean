@@ -33,14 +33,26 @@ Options B and C mean requests pass through an extra hop while the migration runs
 
 ### If you take option B (new service in front)
 
-The template has no built-in forwarder; add one as a small piece of infrastructure and keep it dumb:
+The template ships a forwarder: `src/infrastructure/legacy/`, wired from `src/main.ts`, kept dumb on purpose ([decision 0013](../decisions/0013-legacy-forwarder-is-dumb-transport.md)):
 
-- Forward **only** what is not migrated: match the paths your controllers don't serve, and let `FallbackController` keep answering 404 for genuinely unknown paths.
-- Stream request and response bodies through unchanged; don't parse them, don't re-wrap them in the envelope, don't log bodies.
-- Pass through `Authorization`, cookies, the request-id header (`REQUEST_ID_HEADER`) and `X-Forwarded-For`; add the client IP if it is missing.
-- Give the forwarder its own timeout (below the VIP's) and log `legacy.forward.failed` with the path and status, never the body.
-- On a legacy failure return the legacy status as it is; don't turn it into a 500.
-- Keep a single list of forwarded prefixes in config so shrinking it is one deployment.
+- Forward **only** what is not migrated: `LEGACY_FORWARD_PREFIXES` lists the path prefixes to send on; everything else still answers through this app, and `FallbackController` keeps answering 404 for genuinely unknown paths.
+- Request and response bodies stream through unchanged (`node:http`/`node:https`, never buffered); nothing is parsed, re-wrapped in the envelope, or logged.
+- `Authorization`, cookies, the request-id header (`REQUEST_ID_HEADER`) and `X-Forwarded-For` pass through; the client IP is appended to `X-Forwarded-For`, or set when it is missing.
+- The forwarder has its own timeout, `LEGACY_TIMEOUT_MS`, kept below the VIP's; it logs `legacy.forward.failed` with the method, path and status, never the body or headers.
+- **The legacy status passes straight through, untouched — including 4xx and 5xx.** A forwarder is dumb transport, not a gateway: an upstream 500 arrives at the client as 500, never mapped to a `Result` or turned into a different status.
+- A single list of forwarded prefixes lives in config (`LEGACY_FORWARD_PREFIXES`), so shrinking it as routes migrate is one deployment.
+
+Turn it on with `LEGACY_FORWARD_ENABLED=true`, `LEGACY_TARGET_URL` and at least one entry in `LEGACY_FORWARD_PREFIXES` ([Configuration § Legacy forwarding](../architecture/configuration.md#legacy-forwarding)). Because it pipes the raw request stream, it is wired with `app.use()` in `main.ts` — the composition root — immediately after `helmet()` and before the body parsers, and consequently before `RequestIdMiddleware`; it resolves its own request id from `REQUEST_ID_HEADER`, generating one when the caller sent none.
+
+#### How a route actually moves
+
+**A forwarded prefix always wins over a route implemented here.** The forwarder sits in front of the router, so a controller you write for a path still covered by `LEGACY_FORWARD_PREFIXES` never runs — the request is on its way to the old service before Nest looks at its routes. Three things follow:
+
+- **Migration happens per prefix, not per route inside a prefix.** To move one endpoint out of a prefix you still forward, the prefixes have to be fine-grained enough to say so: forward `/v1/orders/archive` while `/v1/orders` moves, rather than trying to half-migrate `/v1/orders`.
+- **Cutover is one deployment that does both halves**: the routes exist here _and_ the prefix leaves the list. Ship the controller first and it is dead code; remove the prefix first and the traffic 404s.
+- **A forwarded prefix is a security boundary.** Forwarded requests never reach this app's guards, so `JwtGuard`, `RolesGuard` and the CSRF guard do not run on them, and neither does Zod validation or `RequestIdMiddleware`. That is correct for a dumb hop — the legacy service still owns authentication for the routes it still serves — but it means a route can look migrated in this repository while the old service is the one actually serving and securing it. `helmet()` still applies, since it is registered first; CORS does not, being registered later.
+
+When the last prefix leaves the list, set `LEGACY_FORWARD_ENABLED=false` and delete the variables. Nothing else has to change, because nothing in the application ever depended on the forwarder being there.
 
 ### Whatever option you take, behind a VIP check these
 

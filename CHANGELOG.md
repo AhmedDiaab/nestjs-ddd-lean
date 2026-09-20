@@ -68,6 +68,36 @@ stay easy to scan.
   no aggregated-metrics primary server or `CLUSTER_METRICS_PORT` (lean has no metrics subsystem at
   all) — see [decision 0012](docs/decisions/0012-cluster-primary-owns-forking.md) and
   `docs/architecture/operations.md` § Process model.
+- Legacy forwarder (`LEGACY_FORWARD_ENABLED`, default `false`): `src/infrastructure/legacy/`
+  streams paths not yet migrated off a legacy service straight through, for option B ("new service
+  in front") of [Migrate a legacy service](docs/guides/migrate-a-legacy-service.md). Only
+  `LEGACY_FORWARD_PREFIXES` are forwarded (`matchesLegacyPrefix`, exact match or sub-path, never a
+  bare string prefix); everything else, including genuinely unknown paths, still answers through
+  this app. Wired with `app.use()` in `src/main.ts` immediately after `helmet()` and before the
+  body parsers, so the raw request stream is still intact — and before `RequestIdMiddleware`, so
+  it resolves its own request id from `REQUEST_ID_HEADER`. Bodies stream through with
+  `node:http`/`node:https`, never buffered; the legacy status passes through untouched, including
+  4xx and 5xx — only a transport failure on this hop becomes 502 or 504 (`LEGACY_TIMEOUT_MS`),
+  logged as `legacy.forward.failed` with the method, path and status only. See [decision
+  0013](docs/decisions/0013-legacy-forwarder-is-dumb-transport.md).
+- `@Deprecated({ since, sunset, successor?, link?, note? })`
+  (`src/interface/http/decorators/deprecated.decorator.ts`) + `DeprecationInterceptor`: marks a
+  route as going away, setting `Deprecation` (RFC 9745, `@<unix-seconds>`, no boolean form),
+  `Sunset` (RFC 8594, an IMF-fixdate) and, when given, a joined `Link` header
+  (`rel="successor-version"` per RFC 5829, `rel="deprecation"` per RFC 9745) on every response,
+  and flagging the operation `deprecated: true` in Swagger. `since`/`sunset` are both required and
+  validated with Zod inside the decorator factory, so a bad date throws at module load rather than
+  on the route's first request. `DeprecationInterceptor` registers first among
+  `interface.module.ts`'s interceptors — lean has no `MetricsInterceptor` to run ahead of it — so
+  the headers are already on the response before a later rejection (a 400 from Zod, a 500 from the
+  handler). See [Make an endpoint deprecated](docs/guides/make-an-endpoint-deprecated.md) and
+  [decision 0009](docs/decisions/0009-deprecation-dates-live-on-the-route-not-config.md).
+- Repository hygiene: a `LICENSE` (MIT), `package.json` `description`/`author`/`repository`
+  metadata, a `CONTRIBUTING.md` (this template's own gate, coverage floor and scope examples), a
+  `.github/PULL_REQUEST_TEMPLATE.md`, and git hooks via husky — `pre-commit` runs `lint-staged`
+  (ESLint then Prettier on staged files), `commit-msg` runs commitlint against
+  `commitlint.config.mjs` (copied from the full template unchanged; verified against every commit
+  in this repository's history before landing). See `docs/known-gaps.md` § 0.
 
 ### Changed
 

@@ -8,6 +8,7 @@ import { FallbackController } from './http/common/fallback/fallback.controller';
 import { ResponseFormatterInterceptor } from './http/common/interceptors/response-formatter.interceptor';
 import { ErrorPresenter } from './http/error-presenter';
 import { GlobalExceptionFilter } from './http/global-exception.filter';
+import { DeprecationInterceptor } from './http/interceptors/deprecation.interceptor';
 import { ZodHttpInterceptor } from './http/interceptors/zod-http.interceptor';
 import { RequestIdMiddleware } from './http/middleware';
 
@@ -22,6 +23,11 @@ import { RequestIdMiddleware } from './http/middleware';
         ProviderFactory.class(APP_GUARD, JwtGuard),
         // roles from the token; routes without @Roles() are unaffected
         ProviderFactory.class(APP_GUARD, RolesGuard),
+        // first interceptor: lean has no MetricsInterceptor to run ahead of it, so this is
+        // already as early as possible. It only sets headers before next.handle(): running it
+        // first means they survive a later rejection (a 400 from Zod, a 500 from the handler),
+        // not just a handler that succeeds
+        ProviderFactory.class(APP_INTERCEPTOR, DeprecationInterceptor),
         ProviderFactory.class(APP_INTERCEPTOR, ZodHttpInterceptor),
         ProviderFactory.class(APP_INTERCEPTOR, ResponseFormatterInterceptor),
         ProviderFactory.class(APP_FILTER, GlobalExceptionFilter),

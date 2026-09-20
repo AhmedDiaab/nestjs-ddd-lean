@@ -5,6 +5,7 @@ import {
     databaseConfigSchema,
     httpSchema,
     jwtSchema,
+    legacySchema,
     loggingSchema,
     schedulerSchema,
     shutdownSchema,
@@ -22,6 +23,7 @@ const rootSchema = z.object({
     // optional: services without a database leave DATABASE_CONFIG_JSON unset
     database: databaseConfigSchema.optional(),
     jwt: jwtSchema,
+    legacy: legacySchema,
     scheduler: schedulerSchema,
     shutdown: shutdownSchema,
     tls: tlsSchema,
@@ -93,6 +95,13 @@ function hydrate() {
             issuer: envString(env.JWT_ISSUER),
             audience: envString(env.JWT_AUDIENCE),
             cookieName: envString(env.JWT_COOKIE_NAME),
+        },
+        legacy: {
+            forwardEnabled: envBool(env.LEGACY_FORWARD_ENABLED),
+            targetUrl: envString(env.LEGACY_TARGET_URL),
+            forwardPrefixes: envList(env.LEGACY_FORWARD_PREFIXES),
+            timeoutMs: envString(env.LEGACY_TIMEOUT_MS),
+            preserveHostHeader: envBool(env.LEGACY_PRESERVE_HOST_HEADER),
         },
         scheduler: {
             enabled: envBool(env.SCHEDULER_ENABLED),
