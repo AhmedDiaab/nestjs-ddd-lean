@@ -18,8 +18,8 @@ this.logger.warn('db.rollback.failed', { sourceKey: 'main', tag: 'tickets.save',
 
 ## What gets logged automatically
 
-| Event                                          | Level                                                                            |
-| ---------------------------------------------- | -------------------------------------------------------------------------------- |
+| Event                                          | Level                                                                                       |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | Every HTTP request (pino-http access log)      | `info`; `warn` for 4xx; `error` for 5xx                                                     |
 | Successful `/health` and `/health/ready` polls | not logged (monitoring noise)                                                               |
 | Exceptions handled by `GlobalExceptionFilter`  | `warn` 4xx, `error` 5xx, with cause and origin; trimmed stack when `SHOW_STACK_TRACES=true` |

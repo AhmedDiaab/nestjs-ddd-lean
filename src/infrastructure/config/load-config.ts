@@ -6,6 +6,7 @@ import {
     jwtSchema,
     loggingSchema,
     shutdownSchema,
+    tlsSchema,
 } from '@infrastructure/config/schemas';
 import { z } from 'zod';
 import { envBool, envList, envString } from './env.util';
@@ -19,6 +20,7 @@ const rootSchema = z.object({
     database: databaseConfigSchema.optional(),
     jwt: jwtSchema,
     shutdown: shutdownSchema,
+    tls: tlsSchema,
 });
 
 // hydrate from process.env once, then validate
@@ -90,6 +92,14 @@ function hydrate() {
         shutdown: {
             drainDelayMs: envString(env.SHUTDOWN_DRAIN_DELAY_MS),
             forceAfterMs: envString(env.SHUTDOWN_FORCE_AFTER_MS),
+        },
+        tls: {
+            enabled: envBool(env.TLS_ENABLED),
+            keyFile: envString(env.TLS_KEY_FILE),
+            certFile: envString(env.TLS_CERT_FILE),
+            caFile: envString(env.TLS_CA_FILE),
+            passphrase: envString(env.TLS_PASSPHRASE),
+            minVersion: envString(env.TLS_MIN_VERSION),
         },
     };
 }
