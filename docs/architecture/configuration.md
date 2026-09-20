@@ -72,14 +72,37 @@ Optional in-process TLS termination — off by default, since a load balancer/VI
 
 A bad or missing path fails at boot: `loadTlsOptions` (`src/infrastructure/tls/load-tls-options.ts`) reads the files once, before Nest starts, and throws `InvalidConfigError` naming the path, never the file's contents.
 
+### Scheduler
+
+| Variable             | Default | Notes                                                                                            |
+| -------------------- | ------- | ------------------------------------------------------------------------------------------------ |
+| `SCHEDULER_ENABLED`  | `false` | run the cron jobs in this instance ([Operations → Scheduled jobs](operations.md#scheduled-jobs)) |
+| `SCHEDULER_TIMEZONE` | `UTC`   | IANA timezone the cron expressions are read in                                                   |
+
+`SCHEDULER_ENABLED=true` only registers cron jobs on the elected leader worker (`JobScheduler`) when clustered — no extra configuration needed. See [decision 0012](../decisions/0012-cluster-primary-owns-forking.md).
+
+### Cluster
+
+Multi-core scaling on a single box via Node's built-in `cluster` module — no external process manager, off by default ([Operations → Process model](operations.md#process-model)).
+
+| Variable                         | Default | Notes                                                                      |
+| -------------------------------- | ------- | -------------------------------------------------------------------------- |
+| `CLUSTER_ENABLED`                | `false` | run a primary + N worker processes instead of one                          |
+| `CLUSTER_WORKERS`                | `0`     | worker process count; `0` = one per CPU core (`resolveWorkerCount`)        |
+| `CLUSTER_RESPAWN`                | `true`  | fork a replacement when a worker exits unexpectedly                        |
+| `CLUSTER_RESPAWN_MAX_PER_MINUTE` | `10`    | ceiling on respawns per rolling minute, so a crash loop can't fork forever |
+
+With more than one worker, the primary logs the pool capacity arithmetic (`poolMax × workers`) for every configured database source before any worker is forked (`runClusterBootRails`) — the same number [Migrate a legacy service](../guides/migrate-a-legacy-service.md) already warns about for several separate instances; check it against what the DBA allows. Full's version of this rail also fails boot for `IDEMPOTENCY_STORE=memory` with more than one worker and warns for `THROTTLE_STORAGE=memory`; lean has neither an idempotency store nor throttling, so neither check exists here. See [decision 0012](../decisions/0012-cluster-primary-owns-forking.md).
+
 ### Shutdown
 
 | Variable                  | Default | Notes                                                                                                         |
 | ------------------------- | ------- | ------------------------------------------------------------------------------------------------------------- |
 | `SHUTDOWN_DRAIN_DELAY_MS` | `5000`  | readiness fails for this long before the server closes; set it above the load balancer's interval × threshold |
 | `SHUTDOWN_FORCE_AFTER_MS` | `10000` | in-flight requests get this long, then their connections are cut                                              |
+| `SHUTDOWN_JOB_DRAIN_MS`   | `10000` | an in-flight cron job gets this long to finish before the database pools close                                |
 
-The process manager's stop grace period must exceed both, plus the pool `drainTimeSec` ([Operations → Graceful shutdown](operations.md#graceful-shutdown)).
+The process manager's stop grace period must exceed all three, plus the pool `drainTimeSec` ([Operations → Graceful shutdown](operations.md#graceful-shutdown)).
 
 ### JWT
 

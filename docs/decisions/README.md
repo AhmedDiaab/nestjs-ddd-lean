@@ -14,9 +14,10 @@ Short records of choices that shape the codebase. Read the relevant one before c
 | [0008](0008-one-thing-per-file.md)                     | One thing per file (one class, decorator or helper; ESLint `max-classes-per-file`) | Accepted |
 | [0010](0010-error-origin.md)                           | Log the error's origin frame, not a stack trace; always on                         | Accepted |
 | [0011](0011-tls-optional-in-process.md)                | Optional in-process TLS, off by default                                            | Accepted |
+| [0012](0012-cluster-primary-owns-forking.md)           | Cluster primary owns forking; boot rails reduced to the pool-capacity log          | Accepted |
 | [0015](0015-shared-files-between-the-two-templates.md) | Shared files between the two templates; manual diff discipline                     | Accepted |
 
-Gaps in the sequence (0009, 0012, 0013, 0014) are decisions from the full template,
+Gaps in the sequence (0009, 0013, 0014) are decisions from the full template,
 [`nestjs-ddd`](https://github.com/AhmedDiaab/nestjs-ddd), that don't apply here — see
 [decision 0015](0015-shared-files-between-the-two-templates.md).
 

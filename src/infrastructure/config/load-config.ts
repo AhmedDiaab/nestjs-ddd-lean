@@ -1,10 +1,12 @@
 import { env } from 'node:process';
 import {
     appSchema,
+    clusterSchema,
     databaseConfigSchema,
     httpSchema,
     jwtSchema,
     loggingSchema,
+    schedulerSchema,
     shutdownSchema,
     tlsSchema,
 } from '@infrastructure/config/schemas';
@@ -20,8 +22,10 @@ const rootSchema = z.object({
     // optional: services without a database leave DATABASE_CONFIG_JSON unset
     database: databaseConfigSchema.optional(),
     jwt: jwtSchema,
+    scheduler: schedulerSchema,
     shutdown: shutdownSchema,
     tls: tlsSchema,
+    cluster: clusterSchema,
 });
 
 // hydrate from process.env once, then validate
@@ -90,9 +94,14 @@ function hydrate() {
             audience: envString(env.JWT_AUDIENCE),
             cookieName: envString(env.JWT_COOKIE_NAME),
         },
+        scheduler: {
+            enabled: envBool(env.SCHEDULER_ENABLED),
+            timezone: envString(env.SCHEDULER_TIMEZONE),
+        },
         shutdown: {
             drainDelayMs: envString(env.SHUTDOWN_DRAIN_DELAY_MS),
             forceAfterMs: envString(env.SHUTDOWN_FORCE_AFTER_MS),
+            jobDrainMs: envString(env.SHUTDOWN_JOB_DRAIN_MS),
         },
         tls: {
             enabled: envBool(env.TLS_ENABLED),
@@ -101,6 +110,14 @@ function hydrate() {
             caFile: envString(env.TLS_CA_FILE),
             passphrase: envString(env.TLS_PASSPHRASE),
             minVersion: envString(env.TLS_MIN_VERSION),
+        },
+        cluster: {
+            enabled: envBool(env.CLUSTER_ENABLED),
+            workers: envString(env.CLUSTER_WORKERS),
+            respawn: envBool(env.CLUSTER_RESPAWN),
+            respawnMaxPerMinute: envString(env.CLUSTER_RESPAWN_MAX_PER_MINUTE),
+            // Set by the primary on a worker's environment at fork time, never by hand.
+            isLeader: envBool(env.CLUSTER_LEADER),
         },
     };
 }

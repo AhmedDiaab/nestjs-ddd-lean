@@ -1,0 +1,60 @@
+import type { LoggerPort } from '@application/ports';
+import type { ScheduledJob } from './scheduled-job';
+
+/**
+ * Runs a job safely: never lets an error reach the scheduler (which would crash the process),
+ * skips a run while the previous one is still going, and logs start, duration and failures.
+ */
+export class JobRunner {
+    /** The in-flight run, so shutdown can wait for it. `undefined` means idle. */
+    private current: Promise<void> | undefined;
+
+    constructor(
+        private readonly job: ScheduledJob,
+        private readonly logger: LoggerPort,
+    ) {}
+
+    async run(): Promise<void> {
+        if (this.current) {
+            this.logger.warn('scheduler.job.skipped', {
+                job: this.job.name,
+                reason: 'still running',
+            });
+            return;
+        }
+
+        this.current = this.execute(Date.now()).finally(() => {
+            this.current = undefined;
+        });
+        await this.current;
+    }
+
+    /** Whether a run is in flight — shutdown uses this to name a job still draining. */
+    get isRunning(): boolean {
+        return this.current !== undefined;
+    }
+
+    /**
+     * Resolves immediately when idle, otherwise waits for the run in progress. Never rejects:
+     * `execute` already swallows job failures, so the stored promise never does either.
+     */
+    async whenIdle(): Promise<void> {
+        await this.current;
+    }
+
+    private async execute(started: number): Promise<void> {
+        try {
+            await this.job.run();
+            this.logger.info('scheduler.job.finished', {
+                job: this.job.name,
+                durationMs: Date.now() - started,
+            });
+        } catch (error) {
+            this.logger.error('scheduler.job.failed', {
+                job: this.job.name,
+                durationMs: Date.now() - started,
+                error,
+            });
+        }
+    }
+}

@@ -19,6 +19,7 @@ Start here. Each link is one focused document.
 | Add a way of authenticating, or change where auth applies                      | [Add an authentication strategy](guides/add-an-auth-strategy.md)                  |
 | Return a specific HTTP status for a failure                                    | [Add an error](guides/add-error.md)                                               |
 | Add an environment variable                                                    | [Add a config variable](guides/add-config-variable.md)                            |
+| Run work on a schedule (cron)                                                  | [Add a scheduled job](guides/add-a-scheduled-job.md)                              |
 | Connect another database / schema                                              | [Add a database source](guides/add-database-source.md)                            |
 | Implement Postgres, MySQL…                                                     | [Implement a database dialect](guides/add-database-dialect.md)                    |
 | Test any of the above                                                          | [Write tests](guides/write-tests.md)                                              |

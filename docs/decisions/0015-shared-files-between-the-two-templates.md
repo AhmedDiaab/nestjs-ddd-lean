@@ -24,11 +24,14 @@ worth comparing.
 **No automation.** There is no shared package, no codegen, no CI check that fails when the repos
 drift. Keeping them in sync is a manual diff discipline: when either repo changes a file on the
 list below, check whether the change belongs in the other one too, adapting rather than copying
-blindly — lean omits whole subsystems (throttling, idempotency, metrics, the scheduler, domain
-events, the unit of work, the outbound HTTP client, request/trace context, database health,
-Docker, `.github/`), so a full-template change that touches one of those doesn't apply, and a
-lean-only file (its simpler `request-id.middleware.ts`, for instance) has no upstream counterpart
-to diff against at all.
+blindly — lean omits whole subsystems (throttling, idempotency, metrics, domain events, the unit
+of work, the outbound HTTP client, request/trace context, database health, Docker, `.github/`),
+so a full-template change that touches one of those doesn't apply, and a lean-only file (its
+simpler `request-id.middleware.ts`, for instance) has no upstream counterpart to diff against at
+all. The scheduler and cluster mode are shared subsystems now (ported from full; see [decision
+0012](0012-cluster-primary-owns-forking.md)), but cluster mode's boot rails are not identical —
+lean's are reduced to the pool-capacity log, since it has no idempotency store or throttling to
+guard.
 
 Files worth diffing when either repo changes them, because both currently carry the same content
 or the same shape:
@@ -53,6 +56,16 @@ or the same shape:
   (`TLS_*`, logging, HTTP).
 - **TLS**: `src/infrastructure/tls/` in full, and `src/infrastructure/tls/` here once ported (this
   sync); `docs/architecture/operations.md` § TLS and `docs/architecture/configuration.md` § TLS.
+- **Scheduler**: `src/interface/scheduler/` (ported here with `MetricsPort` stripped out — lean
+  has no metrics subsystem to strip it into); `docs/guides/add-a-scheduled-job.md`;
+  `docs/architecture/operations.md` § Scheduled jobs and `docs/architecture/configuration.md` §
+  Scheduler.
+- **Cluster mode**: `src/infrastructure/cluster/` (lean's `cluster-boot-rails.ts` and
+  `cluster-primary.ts` are reduced — no idempotency/throttle rails, no aggregated metrics server,
+  no `metricsPort` field on `cluster.schema.ts` — since lean has none of those subsystems to
+  guard; `release-worker-channel.util.ts` is ported unchanged, since it is load-bearing
+  regardless); `docs/architecture/operations.md` § Process model and
+  `docs/architecture/configuration.md` § Cluster; decision 0012 itself.
 - **Decision records**: see below — the numbering itself is shared.
 - **`package.json` devDependency versions** for the tools both repos use the same way: `eslint`,
   `@eslint/js`, `prettier`, `typescript-eslint`, `eslint-plugin-prettier`, `jest`, `@types/*`.

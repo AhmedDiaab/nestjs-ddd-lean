@@ -11,16 +11,15 @@ Terms: [Glossary](glossary.md). Rules the template does enforce: [Architecture o
 
 Removed on purpose to keep the template small. If you need one, here's the cheapest way back in.
 
-| Omission                 | What you do instead                                                                                                                                                      |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Outbound HTTP client** | Write a gateway adapter with `fetch` per upstream, or port the full template's `infrastructure/http` (timeout, retries, circuit breaker, correlation id — ~520 lines)    |
-| **Metrics / tracing**    | Logs + `/health/ready` are the only operational visibility; port the full template's Prometheus metrics and W3C trace propagation if you need cross-service visibility   |
-| **Cron scheduler**       | Run scheduled work in its own service or an external scheduler (cloud cron, Kubernetes CronJob) calling an endpoint or a script; the full template has an in-process one |
-| **Rate limiting**        | Put it at the load balancer/proxy, or port the full template's throttler guard (in-memory or Redis-backed for multiple instances)                                        |
-| **Unit of work**         | `ConnectionProvider.transaction()` covers one call; several aggregates that must succeed or fail together need a unit-of-work abstraction ported back (~90 lines)        |
-| **Domain events**        | Call side effects directly from the use case, in the order it chooses, after the save succeeds — no `addEvent`/`pullEvents`, no publisher, no handlers                   |
-| **CI**                   | No `.github/workflows`; run `pnpm verify`, `pnpm test:cov` and `pnpm format:check` yourself, or wire up your own pipeline's equivalent                                   |
-| **Docker**               | No `Dockerfile`/`docker-compose.yml`; run the app with `pnpm start:prod` and Oracle however you like (`gvenzl/oracle-free` for local dev), or write your own image       |
+| Omission                 | What you do instead                                                                                                                                                    |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Outbound HTTP client** | Write a gateway adapter with `fetch` per upstream, or port the full template's `infrastructure/http` (timeout, retries, circuit breaker, correlation id — ~520 lines)  |
+| **Metrics / tracing**    | Logs + `/health/ready` are the only operational visibility; port the full template's Prometheus metrics and W3C trace propagation if you need cross-service visibility |
+| **Rate limiting**        | Put it at the load balancer/proxy, or port the full template's throttler guard (in-memory or Redis-backed for multiple instances)                                      |
+| **Unit of work**         | `ConnectionProvider.transaction()` covers one call; several aggregates that must succeed or fail together need a unit-of-work abstraction ported back (~90 lines)      |
+| **Domain events**        | Call side effects directly from the use case, in the order it chooses, after the save succeeds — no `addEvent`/`pullEvents`, no publisher, no handlers                 |
+| **CI**                   | No `.github/workflows`; run `pnpm verify`, `pnpm test:cov` and `pnpm format:check` yourself, or wire up your own pipeline's equivalent                                 |
+| **Docker**               | No `Dockerfile`/`docker-compose.yml`; run the app with `pnpm start:prod` and Oracle however you like (`gvenzl/oracle-free` for local dev), or write your own image     |
 
 ## 2. Genuine gaps
 
