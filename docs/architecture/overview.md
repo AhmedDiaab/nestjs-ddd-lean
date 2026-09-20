@@ -46,8 +46,9 @@ src/
 │   └── shared/             # LogMeta types
 ├── infrastructure/
 │   ├── config/             # env → Zod schemas → EnvConfigAdapter (ConfigPort)
-│   ├── logging/            # nestjs-pino setup, PinoLoggerAdapter (LoggerPort)
+│   ├── logging/            # nestjs-pino setup, PinoLoggerAdapter (LoggerPort), PinoProcessLogger
 │   ├── auth/               # JwtStrategy
+│   ├── cluster/            # optional multi-core primary/worker split, off unless CLUSTER_ENABLED
 │   └── database/
 │       ├── clients/        # DatabaseClient, OracleClient, NotImplementedClient, oracle/ helpers
 │       ├── connection/     # PoolManager, ConnectionProvider factory + token

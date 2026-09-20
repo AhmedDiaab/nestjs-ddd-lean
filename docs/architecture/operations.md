@@ -101,9 +101,46 @@ curl -k https://localhost:3000/health   # -k: self-signed cert, not in curl's tr
 
 A plain `curl http://localhost:3000/health` fails (connection reset) once TLS is enabled — there is no plain-HTTP listener alongside it. Delete the throwaway key/cert afterwards.
 
+## Process model
+
+**One process is the default**, and cluster mode existing in the codebase changes nothing about it: `NODE_ENV=production node dist/main` and [the Windows service](#windows-service-nssm) both start exactly one Node process, which builds the Nest application, opens the database pools, and serves HTTP — byte-for-byte the same as before this feature existed.
+
+Set `CLUSTER_ENABLED=true` to run a primary plus `CLUSTER_WORKERS` worker processes instead, using Node's built-in `cluster` module — no external process manager (no PM2). This is a single-box, multi-core optimisation, not a replacement for running more than one container: it helps most exactly where scaling out is hardest — the Windows service install. See [decision 0012](../decisions/0012-cluster-primary-owns-forking.md).
+
+| Owns                                          | Primary |       Worker       |
+| --------------------------------------------- | :-----: | :----------------: |
+| Forking, respawning, leader election, signals |   yes   |         –          |
+| Nest application (HTTP server, Swagger)       |    –    |        yes         |
+| Database pools                                |    –    |        yes         |
+| Scheduled jobs (`SCHEDULER_ENABLED`)          |    –    | leader worker only |
+
+The primary **never builds a Nest application** — no database pools, no HTTP server, no Swagger — so a crash in a worker (an unhandled exception in a request handler, for instance) never takes the whole process down: the primary respawns the worker (`CLUSTER_RESPAWN`, default on, rate-capped by `CLUSTER_RESPAWN_MAX_PER_MINUTE`) and the others keep serving.
+
+**Leader election.** Exactly one worker is marked the scheduler leader, via an internal env var (`CLUSTER_LEADER`) the primary sets only at fork time — never set this by hand. `JobScheduler` only registers cron jobs on that worker ([Scheduled jobs](#scheduled-jobs)), so `SCHEDULER_ENABLED=true` clusters correctly with no extra configuration: N workers no longer each run every job. When the leader exits and is respawned, its replacement is forked with the same env var and inherits leadership; if respawn is off (`CLUSTER_RESPAWN=false`) or shutdown has begun, leadership is not reassigned.
+
+**Boot-time safety rail**, checked once in the primary before any worker is forked (`runClusterBootRails`, [Configuration → Cluster](configuration.md#cluster)): the pool arithmetic (`poolMax × workers`) is logged for every configured database source, the same number [Migrate a legacy service](../guides/migrate-a-legacy-service.md) already warns about for several separate instances — check it against what the DBA allows. Full's version of this rail also fails boot for `IDEMPOTENCY_STORE=memory` with more than one worker and warns for `THROTTLE_STORAGE=memory`; lean has neither an idempotency store nor throttling, so neither check exists here.
+
+### Windows scheduling caveat
+
+Node's cluster module round-robins connections across workers (`SCHED_RR`) on every platform **except Windows**, which uses the operating system's own scheduling instead — in practice, whichever worker's `accept()` call the OS wakes first tends to get more connections, especially under light load. This is a Node/libuv limitation, not something this template works around. If even request distribution matters more than raw throughput on Windows, `CLUSTER_WORKERS=1` still gets a supervising primary and automatic respawn; otherwise, scale with more containers instead.
+
+### Windows service stop path
+
+`stop-service.ps1` still sends its stop signal to the single process NSSM manages — but with cluster mode on, that process is now the **primary**, not a worker serving requests. The primary is responsible for forwarding the signal on: on `SIGTERM`/`SIGINT` it calls `worker.process.kill(signal)` on every live worker explicitly, rather than counting on the OS to propagate the signal to child processes — Windows in particular does not do this reliably. Only once every worker has exited (or been force-killed past the wait below) does the primary itself exit, which is what lets NSSM consider the service stopped.
+
+This adds one hop to the shutdown sequence from [Graceful shutdown](#graceful-shutdown), so the same rule applies with one more term added:
+
+```
+StopTimeoutMs ≥ SHUTDOWN_DRAIN_DELAY_MS + SHUTDOWN_FORCE_AFTER_MS + SHUTDOWN_JOB_DRAIN_MS + slack
+```
+
+`start-service.ps1`'s `$StopTimeoutMs` default (30000) is unchanged by cluster mode — it already needs headroom above the full drain sequence including the job drain, and a worker's own drain sequence is exactly what it was in a single process. The primary adds only the time it takes to notice every worker has exited, bounded by that same total plus a small fixed slack, before it `SIGKILL`s stragglers and exits itself. Set it generously either way.
+
+A worker exits on its own as soon as its drain finishes: once `app.close()` returns, it closes its IPC channel to the primary, because that channel is an active handle that would otherwise keep the event loop alive with nothing left to do. Without that step every clustered shutdown would sit until the bounded wait expired and then be force-killed — a clean restart would be indistinguishable from a stuck one, and `cluster.drain.timeout` would fire every time. It is logged at `warn` precisely because it should be rare: seeing it means a worker really is stuck, not that shutdown is working normally.
+
 ## Graceful shutdown
 
-On `SIGTERM`/`SIGINT` (Ctrl+C) the process shuts down in the order a load balancer expects:
+On `SIGTERM`/`SIGINT` (Ctrl+C) the process shuts down in the order a load balancer expects. This describes a single worker's sequence; in [cluster mode](#process-model) the primary forwards the signal to every worker and adds one more hop before it exits itself.
 
 | Step | What happens                                                                                      | Why                                                                                        |
 | ---- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
@@ -126,7 +163,7 @@ This is deliberately **not** `app.enableShutdownHooks()`: Nest's own handler run
 
 Cron jobs live in `src/interface/scheduler` and run inside the API process, off unless `SCHEDULER_ENABLED=true`, with cron expressions read in `SCHEDULER_TIMEZONE` (default UTC).
 
-- **Every instance with the switch on runs every job.** With several separate instances (containers, VMs) behind a load balancer, run one instance with `SCHEDULER_ENABLED=true` (the "worker") and leave it off on the others, or make the jobs safe to run more than once.
+- **Every instance with the switch on runs every job** — unless it's clustered: in [cluster mode](#process-model) only the elected leader worker registers jobs automatically, no extra configuration needed. Outside cluster mode (several separate containers/VMs behind a load balancer), run one instance with `SCHEDULER_ENABLED=true` (the "worker") and leave it off on the others, or make the jobs safe to run several times.
 - The worker can stay in the pool (it still serves HTTP) or be taken out of it; either way its `/health` must answer for the monitor.
 - Failures are logged as `scheduler.job.failed` and never stop the process; overlapping runs are skipped (`scheduler.job.skipped`). Alert on those two events.
 - Startup logs one `scheduler.job.scheduled` per job with its next run; `scheduler.disabled` means the switch is off.

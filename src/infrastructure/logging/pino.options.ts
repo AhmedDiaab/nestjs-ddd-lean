@@ -64,6 +64,18 @@ export function isHealthCheck(url: string | undefined): boolean {
 }
 
 /**
+ * Console + optional file-rotation transport targets. Shared by the in-app `pinoHttp` options
+ * below and by `PinoProcessLogger` (`pino-process-logger.ts`), a plain-pino logger for code that
+ * runs before Nest exists — today, only the cluster primary — so its logs land in the same place
+ * (console, and the same rotated file when `LOGGING_TO_FILE=true`) as its workers'.
+ */
+export function createTransportTargets(config: ConfigPort): TransportTargetOptions[] {
+    return [fileRotationTarget(config), consoleTarget(config)].filter(
+        (target): target is TransportTargetOptions => !!target,
+    );
+}
+
+/**
  * pino-http wraps whatever serializer sits at its error key as
  * `(value) => customSerializer(defaultErrSerializer(value))` (pino-std-serializers'
  * `wrapErrorSerializer`, `lib/err.js`) — by the time our serializer runs, `value` is already
@@ -80,9 +92,9 @@ function unwrapRaw(value: unknown): unknown {
 
 /**
  * Replaces pino's default error handling (which serializes the FULL untrimmed stack, ungated)
- * for every `meta.error` passed to the logger — the connection pool, the Oracle client — not
- * just `GlobalExceptionFilter`. `origin`/`causeOrigin` are always on; the stack is included only
- * when `SHOW_STACK_TRACES=true`, and then trimmed the same way.
+ * for every `meta.error` passed to the logger — job-runner, the connection pool, the Oracle
+ * client — not just `GlobalExceptionFilter`. `origin`/`causeOrigin` are always on; the stack is
+ * included only when `SHOW_STACK_TRACES=true`, and then trimmed the same way.
  */
 function errorSerializer(config: ConfigPort) {
     return (value: unknown) => {
@@ -103,9 +115,7 @@ function errorSerializer(config: ConfigPort) {
 
 export const generatePinoOptions = (config: ConfigPort): Params => {
     const requestIdHeader = config.get('logging.requestIdHeader');
-    const targets = [fileRotationTarget(config), consoleTarget(config)].filter(
-        (target): target is TransportTargetOptions => !!target,
-    );
+    const targets = createTransportTargets(config);
     const serializeError = errorSerializer(config);
 
     return {

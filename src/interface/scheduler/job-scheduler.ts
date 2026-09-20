@@ -18,9 +18,12 @@ type RegisteredJob = {
 };
 
 /**
- * Starts the service's jobs when `SCHEDULER_ENABLED` is on. **Every instance with the switch on
- * runs every job**: with several separate instances (containers, VMs) behind a load balancer,
- * enable it on exactly one of them, or make the jobs safe to run more than once.
+ * Starts the service's jobs when `SCHEDULER_ENABLED` is on. In cluster mode
+ * (`CLUSTER_ENABLED=true`) only the elected leader worker registers them, so turning the switch
+ * on clusters correctly with no extra configuration — N workers no longer each run every job.
+ * Outside cluster mode, every instance that has the switch on runs every job: with several
+ * separate instances (containers, VMs) behind a load balancer, enable it on exactly one of them,
+ * or make the jobs safe to run more than once.
  */
 @Injectable()
 export class JobScheduler implements OnApplicationBootstrap {
@@ -36,6 +39,14 @@ export class JobScheduler implements OnApplicationBootstrap {
     onApplicationBootstrap(): void {
         if (!this.config.get('scheduler.enabled')) {
             this.logger.info('scheduler.disabled', { jobs: this.jobs.length });
+            return;
+        }
+
+        if (this.config.get('cluster.enabled') && !this.config.get('cluster.isLeader')) {
+            this.logger.info('scheduler.disabled', {
+                jobs: this.jobs.length,
+                reason: 'not-leader',
+            });
             return;
         }
 

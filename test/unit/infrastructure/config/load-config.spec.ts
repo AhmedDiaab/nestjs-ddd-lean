@@ -105,6 +105,43 @@ describe('loadConfig', () => {
         expect(config.shutdown.jobDrainMs).toBe(2000);
     });
 
+    it('loads cluster config from env, defaulting to disabled', () => {
+        // Arrange: only BASE_ENV is set
+
+        // Act
+        const config = loadConfig();
+
+        // Assert
+        expect(config.cluster).toMatchObject({
+            enabled: false,
+            workers: 0,
+            respawn: true,
+            isLeader: false,
+        });
+    });
+
+    it('parses cluster overrides from env', () => {
+        // Arrange
+        process.env = {
+            ...BASE_ENV,
+            CLUSTER_ENABLED: 'true',
+            CLUSTER_WORKERS: '4',
+            CLUSTER_RESPAWN: 'false',
+            CLUSTER_RESPAWN_MAX_PER_MINUTE: '5',
+        };
+
+        // Act
+        const config = loadConfig();
+
+        // Assert
+        expect(config.cluster).toMatchObject({
+            enabled: true,
+            workers: 4,
+            respawn: false,
+            respawnMaxPerMinute: 5,
+        });
+    });
+
     it('loads database config with health list and oracle driver options', () => {
         // Arrange
         process.env = {

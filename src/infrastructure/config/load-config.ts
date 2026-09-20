@@ -1,6 +1,7 @@
 import { env } from 'node:process';
 import {
     appSchema,
+    clusterSchema,
     databaseConfigSchema,
     httpSchema,
     jwtSchema,
@@ -24,6 +25,7 @@ const rootSchema = z.object({
     scheduler: schedulerSchema,
     shutdown: shutdownSchema,
     tls: tlsSchema,
+    cluster: clusterSchema,
 });
 
 // hydrate from process.env once, then validate
@@ -108,6 +110,14 @@ function hydrate() {
             caFile: envString(env.TLS_CA_FILE),
             passphrase: envString(env.TLS_PASSPHRASE),
             minVersion: envString(env.TLS_MIN_VERSION),
+        },
+        cluster: {
+            enabled: envBool(env.CLUSTER_ENABLED),
+            workers: envString(env.CLUSTER_WORKERS),
+            respawn: envBool(env.CLUSTER_RESPAWN),
+            respawnMaxPerMinute: envString(env.CLUSTER_RESPAWN_MAX_PER_MINUTE),
+            // Set by the primary on a worker's environment at fork time, never by hand.
+            isLeader: envBool(env.CLUSTER_LEADER),
         },
     };
 }

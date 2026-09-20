@@ -49,6 +49,25 @@ stay easy to scan.
   `$StopTimeoutMs` default rose from 15000 to 30000 to keep headroom above the now-longer drain
   sequence. See [Add a scheduled job](docs/guides/add-a-scheduled-job.md) and
   `docs/architecture/operations.md` § Scheduled jobs.
+- Cluster mode (`CLUSTER_ENABLED`, default `false`): multi-core scaling on a single box via
+  Node's built-in `cluster` module — no external process manager. `src/infrastructure/cluster/`
+  forks `CLUSTER_WORKERS` workers (0 = one per CPU core), respawns one that exits unexpectedly
+  (rate-capped by `CLUSTER_RESPAWN_MAX_PER_MINUTE`, off via `CLUSTER_RESPAWN=false`), elects one
+  worker as the scheduler leader, and — on `SIGTERM`/`SIGINT` — forwards the signal to every
+  worker explicitly (`worker.process.kill(signal)`, not relying on the OS, since Windows does not
+  propagate it reliably) before a bounded wait and `SIGKILL` for stragglers. A worker closes its
+  IPC channel to the primary once its own drain finishes, so it exits voluntarily rather than
+  waiting to be killed — measured before this fix at 27 seconds per clustered restart and a
+  `cluster.drain.timeout` warning on every clean shutdown, both gone afterwards. The primary never
+  builds a Nest application: no database pools, no HTTP server, no Swagger. `PinoProcessLogger`
+  (`src/infrastructure/logging/pino-process-logger.ts`) gives it a logger built from the same
+  transport configuration as the in-app one, without going through Nest DI. A boot-time rail
+  (`runClusterBootRails`) logs `poolMax × workers` session capacity for every configured database
+  source before any worker is forked. Reduced from full's version of this feature: no
+  `IDEMPOTENCY_STORE=memory`/`THROTTLE_STORAGE=memory` boot rails (lean has neither subsystem) and
+  no aggregated-metrics primary server or `CLUSTER_METRICS_PORT` (lean has no metrics subsystem at
+  all) — see [decision 0012](docs/decisions/0012-cluster-primary-owns-forking.md) and
+  `docs/architecture/operations.md` § Process model.
 
 ### Changed
 
@@ -81,6 +100,12 @@ stay easy to scan.
   back), and `GlobalExceptionFilter`'s non-record `HttpException` fallback now reads a message
   only from a string or a list of strings — anything else falls back to the status name instead of
   being stringified into `"[object Object]"`.
+- `JobScheduler.onApplicationBootstrap()` now also skips registering jobs when clustered and this
+  worker is not the elected leader, so `SCHEDULER_ENABLED=true` clusters correctly with no extra
+  configuration — its class doc comment is updated to match.
+- `src/infrastructure/logging/pino.options.ts` now exports `createTransportTargets` (the console +
+  optional file-rotation target list), extracted so `PinoProcessLogger` can build the same
+  transport without going through `nestjs-pino`.
 
 ### Fixed
 
