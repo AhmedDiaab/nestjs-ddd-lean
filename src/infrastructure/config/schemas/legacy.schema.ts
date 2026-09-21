@@ -22,6 +22,28 @@ export const legacySchema = z
         timeoutMs: z.coerce.number().int().positive().default(10_000),
         /** Forward the client's original Host header instead of the legacy target's. */
         preserveHostHeader: z.boolean().default(false),
+        /**
+         * Log one line per forwarded request (`legacy.forward.completed`). Failures
+         * (`legacy.forward.failed`) are logged either way. Forwarded requests never reach Nest's
+         * router, so pino-http's access log does not see them: without this they are invisible.
+         */
+        logRequests: z.boolean().default(true),
+        /**
+         * File the forwarding log is written to, inside `LOGGING_DIR` and rotated with the same
+         * `LOGGING_FILES_LIMIT`/`LOGGING_MAX_SIZE` as the application log. Separate from
+         * `LOGGING_FILE_NAME` on purpose: legacy traffic is the migration's own ledger, and
+         * mixing it into `app.log` buries it under this service's own requests.
+         *
+         * A bare file name, not a path: it is joined onto `LOGGING_DIR`, and a `/` or `..` here
+         * would write the log outside the directory operators collect and rotate.
+         */
+        logFileName: z
+            .string()
+            .regex(
+                /^[\w.-]+$/,
+                'LEGACY_LOG_FILE_NAME must be a bare file name inside LOGGING_DIR (letters, digits, dot, dash, underscore)',
+            )
+            .default('legacy-forward.log'),
     })
     .superRefine((legacy, ctx) => {
         if (!legacy.forwardEnabled) return;

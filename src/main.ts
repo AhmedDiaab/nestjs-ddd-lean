@@ -6,7 +6,7 @@ import { releaseWorkerChannel, startPrimary } from '@infrastructure/cluster';
 import { EnvConfigAdapter, InvalidConfigError, loadConfig } from '@infrastructure/config';
 import { LegacyForwarder } from '@infrastructure/legacy';
 import { runGracefulShutdown } from '@infrastructure/lifecycle';
-import { PinoProcessLogger } from '@infrastructure/logging';
+import { PinoFileLogger, PinoProcessLogger } from '@infrastructure/logging';
 import { loadTlsOptions } from '@infrastructure/tls';
 import { setupSwagger } from '@interface/http/swagger';
 import { JobScheduler } from '@interface/scheduler';
@@ -73,7 +73,12 @@ async function bootstrap() {
             timeoutMs: config.get('legacy.timeoutMs'),
             preserveHostHeader: config.get('legacy.preserveHostHeader'),
             requestIdHeader: config.get('logging.requestIdHeader'),
-            logger: app.get<LoggerPort>(LoggerPortToken),
+            logRequests: config.get('legacy.logRequests'),
+            // Its own rotated file (LEGACY_LOG_FILE_NAME), not the injected application logger:
+            // forwarded requests never reach Nest's router, so they are absent from the pino-http
+            // access log, and keeping them in `app.log` would bury the migration's own traffic
+            // under this service's. Same directory, level and rotation settings as `app.log`.
+            logger: new PinoFileLogger(config, config.get('legacy.logFileName')),
         });
         app.use(forwarder.middleware());
     }

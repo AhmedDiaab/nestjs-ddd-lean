@@ -16,19 +16,32 @@ import { z } from 'zod';
 import { envBool, envList, envString } from './env.util';
 import { InvalidConfigError } from './invalid-config.error';
 
-const rootSchema = z.object({
-    app: appSchema,
-    logging: loggingSchema,
-    http: httpSchema,
-    // optional: services without a database leave DATABASE_CONFIG_JSON unset
-    database: databaseConfigSchema.optional(),
-    jwt: jwtSchema,
-    legacy: legacySchema,
-    scheduler: schedulerSchema,
-    shutdown: shutdownSchema,
-    tls: tlsSchema,
-    cluster: clusterSchema,
-});
+const rootSchema = z
+    .object({
+        app: appSchema,
+        logging: loggingSchema,
+        http: httpSchema,
+        // optional: services without a database leave DATABASE_CONFIG_JSON unset
+        database: databaseConfigSchema.optional(),
+        jwt: jwtSchema,
+        legacy: legacySchema,
+        scheduler: schedulerSchema,
+        shutdown: shutdownSchema,
+        tls: tlsSchema,
+        cluster: clusterSchema,
+    })
+    // Cross-namespace: the forwarding log only keeps legacy traffic separate if it is a different
+    // file. Pointed at LOGGING_FILE_NAME it would be two pino-roll transports writing and rotating
+    // the same file in one process — interleaved lines and a racing rotation, which is the exact
+    // opposite of what the setting is for.
+    .superRefine((config, ctx) => {
+        if (config.legacy.logFileName !== config.logging.fileName) return;
+        ctx.addIssue({
+            code: 'custom',
+            path: ['legacy', 'logFileName'],
+            message: 'LEGACY_LOG_FILE_NAME must differ from LOGGING_FILE_NAME',
+        });
+    });
 
 // hydrate from process.env once, then validate
 function hydrate() {
@@ -102,6 +115,8 @@ function hydrate() {
             forwardPrefixes: envList(env.LEGACY_FORWARD_PREFIXES),
             timeoutMs: envString(env.LEGACY_TIMEOUT_MS),
             preserveHostHeader: envBool(env.LEGACY_PRESERVE_HOST_HEADER),
+            logRequests: envBool(env.LEGACY_LOG_REQUESTS),
+            logFileName: envString(env.LEGACY_LOG_FILE_NAME),
         },
         scheduler: {
             enabled: envBool(env.SCHEDULER_ENABLED),

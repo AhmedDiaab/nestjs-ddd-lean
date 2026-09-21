@@ -4,6 +4,12 @@ export { PinoLoggerAdapter } from './pino.adapter';
 
 export { PinoLoggerModule } from './pino.module';
 
-export { createTransportTargets, generatePinoOptions } from './pino.options';
+export {
+    createDedicatedFileTargets,
+    createTransportTargets,
+    generatePinoOptions,
+} from './pino.options';
+
+export { PinoFileLogger } from './pino-file-logger';
 
 export { PinoProcessLogger } from './pino-process-logger';

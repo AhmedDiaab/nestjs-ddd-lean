@@ -9,6 +9,25 @@ stay easy to scan.
 
 ## [Unreleased]
 
+### Added
+
+- The legacy forwarder now logs the requests it forwards, to a file of its own. Answering in
+  `app.use()` keeps these requests out of Nest's router and so out of pino-http's access log:
+  until now a forwarded call left no trace at all unless the hop itself failed. Each one is logged
+  as `legacy.forward.completed` (`info`, with whatever status the legacy service returned),
+  `legacy.forward.aborted` (`warn`) or `legacy.forward.failed` (`error`, 502/504 on this hop),
+  carrying the method, path, request id and `latencyMs` — never a body, header or query string.
+  Exactly one of the three per request: a hop that fails after the legacy service already sent a
+  status is logged as the failure it is, not as the 200 the truncated response started out as.
+  The lines go to `LOGGING_DIR/LEGACY_LOG_FILE_NAME` (new, default `legacy-forward.log`) through
+  the new `PinoFileLogger` (`src/infrastructure/logging/pino-file-logger.ts`), rotated like
+  `app.log` but separate from it, so the migration's traffic is readable on its own;
+  `LEGACY_LOG_REQUESTS=false` (new, default `true`) keeps only `legacy.forward.failed`, and with
+  `LOGGING_TO_FILE=false` the lines fall back to the console. `LEGACY_LOG_FILE_NAME` must be a
+  bare file name and must differ from `LOGGING_FILE_NAME`, so the two rotations cannot collide. See
+  [decision 0013](docs/decisions/0013-legacy-forwarder-is-dumb-transport.md) and
+  `docs/architecture/logging.md` § The legacy forwarding log.
+
 ## [1.0.0] - 2026-09-20
 
 First tagged release of the lean template. Nothing was tagged before it, so this version is

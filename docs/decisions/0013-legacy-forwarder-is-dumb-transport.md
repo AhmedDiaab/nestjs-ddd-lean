@@ -58,6 +58,24 @@ to run: whatever the legacy service does today, right or wrong, the client sees 
   legacy call that outlives `LEGACY_TIMEOUT_MS` becomes 504 (this hop gave up waiting) —
   `legacy-forwarder.ts`. Both are logged as `legacy.forward.failed` with the method, path and
   status only, never a body or header (they can carry tokens, cookies or PII).
+- **The forwarder keeps its own access log, in its own file.** Answering in `app.use()` means the
+  request never reaches Nest's router, and so never reaches pino-http's access log: without a log
+  line written here, a forwarded request leaves no trace in this service at all — the one thing an
+  operator running option B needs to see is exactly the traffic that is still going to the old
+  system. It goes to `LOGGING_DIR/LEGACY_LOG_FILE_NAME` (default `logs/legacy-forward.log`) via
+  `PinoFileLogger`, not into `app.log`: the two streams answer different questions ("how is this
+  service doing" vs "what is left to migrate"), and the migration's own ledger should be readable
+  without filtering this service's own requests out of it. `legacy.forward.completed` (`info`,
+  carrying whatever status the legacy service returned), `legacy.forward.aborted` (`warn`, the
+  client hung up) and `legacy.forward.failed` (`error`, this hop) all carry the same four fields —
+  method, path, request id, `latencyMs` — under the rule above: no body, header or query string.
+  A request settles **once**: a hop that dies after the legacy service has already sent a status
+  is `failed` only, never also `completed`, or the truncated response would read in the log as the
+  successful 200 it started out as. The two endings are told apart on the response's `close` by
+  `writableFinished` rather than by `'aborted'` on the request, which only fires while the request
+  message itself is incomplete and so never sees an ordinary client hang-up mid-response.
+  `LEGACY_LOG_REQUESTS=false` drops the per-request lines (`completed`, `aborted`) and keeps
+  `legacy.forward.failed`, for a forwarded path whose volume makes the per-request line worthless.
 - **Streams with `node:http`/`node:https`, buffering nothing.** A hop whose entire job is "don't
   look at the bytes" cannot call `.text()`/`.json()` on the response the way a gateway that needs
   a typed body to map would — that would cap what a forwarded route can carry at whatever this
@@ -86,8 +104,9 @@ to run: whatever the legacy service does today, right or wrong, the client sees 
   defaults); leaving it off (the default) changes no other code path, verified by the full
   single-process test suite passing with it unset.
 - `docs/guides/migrate-a-legacy-service.md` § option B now points here instead of describing a
-  forwarder to write from scratch; `docs/architecture/configuration.md` § Legacy forwarding and
-  `.env.example` document the four variables.
+  forwarder to write from scratch; `docs/architecture/configuration.md` § Legacy forwarding,
+  `docs/architecture/logging.md` § The legacy forwarding log and `.env.example` document the
+  variables.
 - A team on option C ("legacy forwards") gets nothing from this — that forwarder lives in the
   legacy service, outside this codebase, and is unaffected.
 - This record carries the same number as [`nestjs-ddd`'s decision

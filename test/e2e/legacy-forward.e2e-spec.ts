@@ -1,4 +1,10 @@
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import {
+    createServer,
+    request as httpRequest,
+    type IncomingMessage,
+    type Server,
+    type ServerResponse,
+} from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { LoggerPort } from '@application/ports';
 import { LegacyForwarder } from '@infrastructure/legacy';
@@ -7,6 +13,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '@src/app.module';
 import cookieParser from 'cookie-parser';
+import type { Request, Response } from 'express';
 import helmet from 'helmet';
 import request from 'supertest';
 
@@ -17,12 +24,52 @@ describe('Legacy forwarding (e2e)', () => {
     let upstream: Server;
     let upstreamPort: number;
     let capturedHeaders: IncomingMessage['headers'] = {};
-    const loggedErrors: Array<{ message: string; meta: unknown }> = [];
+    type LogLine = { level: 'info' | 'warn' | 'error'; message: string; meta: unknown };
+    const logged: LogLine[] = [];
+    const loggedErrors = (): LogLine[] => logged.filter((line) => line.level === 'error');
+    const linesFor = (message: string): LogLine[] =>
+        logged.filter((line) => line.message === message);
+    // The forwarder writes to a PinoFileLogger (its own rotated file) in src/main.ts; here a fake
+    // stands in for it, so the assertions are about what is logged, not where it lands.
     const forwarderLogger: LoggerPort = {
         debug: () => undefined,
-        info: () => undefined,
-        warn: () => undefined,
-        error: (message, meta) => loggedErrors.push({ message, meta }),
+        info: (message, meta) => logged.push({ level: 'info', message, meta }),
+        warn: (message, meta) => logged.push({ level: 'warn', message, meta }),
+        error: (message, meta) => logged.push({ level: 'error', message, meta }),
+    };
+
+    // express is not a direct dependency of this template, so a forwarder that needs a server of
+    // its own is mounted on node:http, with the two fields express would have added set by hand.
+    const bareServers: Server[] = [];
+    const mountForwarder = async (logRequests: boolean, timeoutMs: number): Promise<Server> => {
+        const forwarder = new LegacyForwarder({
+            targetUrl: `http://127.0.0.1:${upstreamPort}`,
+            forwardPrefixes: ['/v1/legacy'],
+            timeoutMs,
+            preserveHostHeader: false,
+            requestIdHeader: 'x-request-id',
+            logRequests,
+            logger: forwarderLogger,
+        });
+        const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+            const path = (req.url ?? '/').split('?')[0];
+            Object.assign(req, { path, protocol: 'http', originalUrl: req.url });
+            forwarder.middleware()(req as unknown as Request, res as unknown as Response, () => {
+                res.writeHead(404);
+                res.end();
+            });
+        });
+        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+        bareServers.push(server);
+        return server;
+    };
+
+    const waitForLine = async (message: string): Promise<void> => {
+        for (let attempt = 0; attempt < 200; attempt++) {
+            if (linesFor(message).length > 0) return;
+            await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        throw new Error(`timed out waiting for ${message}`);
     };
 
     beforeAll(async () => {
@@ -56,6 +103,15 @@ describe('Legacy forwarding (e2e)', () => {
                 req.resume();
                 res.writeHead(500, { 'content-type': 'text/plain' });
                 res.end('legacy failure');
+                return;
+            }
+
+            if (path === '/v1/legacy/half-body') {
+                req.resume();
+                // Headers and part of the body, then nothing: the response starts and never ends,
+                // so this hop fails (or the client hangs up) AFTER the status has been sent on.
+                res.writeHead(200, { 'content-type': 'text/plain' });
+                res.write('first chunk');
                 return;
             }
 
@@ -95,6 +151,7 @@ describe('Legacy forwarding (e2e)', () => {
             timeoutMs: 1000,
             preserveHostHeader: false,
             requestIdHeader: 'x-request-id',
+            logRequests: true,
             logger: forwarderLogger,
         });
         app.use(forwarder.middleware());
@@ -109,6 +166,9 @@ describe('Legacy forwarding (e2e)', () => {
 
     afterAll(async () => {
         await app.close();
+        for (const server of bareServers) {
+            await new Promise<void>((resolve) => server.close(() => resolve()));
+        }
         await new Promise<void>((resolve) => upstream.close(() => resolve()));
     });
 
@@ -176,7 +236,7 @@ describe('Legacy forwarding (e2e)', () => {
 
     it('returns 504 within the configured timeout when the upstream never responds', async () => {
         // Arrange
-        loggedErrors.length = 0;
+        logged.length = 0;
         const startedAt = Date.now();
 
         // Act
@@ -186,9 +246,130 @@ describe('Legacy forwarding (e2e)', () => {
         // Assert: well within the suite's own timeout, and never full-hangs
         expect(res.status).toBe(504);
         expect(elapsedMs).toBeLessThan(3000);
-        expect(loggedErrors).toHaveLength(1);
-        expect(loggedErrors[0]?.message).toBe('legacy.forward.failed');
-        expect(loggedErrors[0]?.meta).toMatchObject({ status: 504 });
+        expect(loggedErrors()).toHaveLength(1);
+        expect(loggedErrors()[0]?.message).toBe('legacy.forward.failed');
+        expect(loggedErrors()[0]?.meta).toMatchObject({ status: 504 });
+    });
+
+    it('logs one line per forwarded request, with the status, latency and correlation id', async () => {
+        // Arrange
+        logged.length = 0;
+
+        // Act
+        await request(app.getHttpServer())
+            .get('/v1/legacy/echo')
+            .set('x-request-id', 'trace-legacy-log');
+
+        // Assert
+        const completed = linesFor('legacy.forward.completed');
+        expect(completed).toHaveLength(1);
+        expect(completed[0]?.level).toBe('info');
+        expect(completed[0]?.meta).toMatchObject({
+            method: 'GET',
+            path: '/v1/legacy/echo',
+            status: 201,
+            requestId: 'trace-legacy-log',
+        });
+        expect((completed[0]?.meta as { latencyMs: number }).latencyMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it('logs the legacy status as it was, without turning a 500 into a failure of this hop', async () => {
+        // Arrange
+        logged.length = 0;
+
+        // Act
+        await request(app.getHttpServer()).get('/v1/legacy/boom');
+
+        // Assert
+        expect(linesFor('legacy.forward.completed')[0]?.meta).toMatchObject({ status: 500 });
+        expect(loggedErrors()).toHaveLength(0);
+    });
+
+    it('never logs the query string, a header or a body', async () => {
+        // Arrange
+        logged.length = 0;
+
+        // Act
+        await request(app.getHttpServer())
+            .get('/v1/legacy/echo?token=super-secret')
+            .set('Authorization', 'Bearer legacy-token');
+
+        // Assert
+        const serialized = JSON.stringify(logged);
+        expect(serialized).not.toContain('super-secret');
+        expect(serialized).not.toContain('legacy-token');
+    });
+
+    it('logs a failure that happens after the response started once, not also as completed', async () => {
+        // Arrange: the upstream sends headers and a chunk, then stalls past the 1s timeout
+        logged.length = 0;
+
+        // Act
+        await request(app.getHttpServer())
+            .get('/v1/legacy/half-body')
+            .catch(() => undefined); // the truncated response rejects in the client
+
+        // Assert: the status the legacy service had already sent must not read as a success
+        await waitForLine('legacy.forward.failed');
+        // the response is destroyed after the failure is logged; its 'close' lands a tick later
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(linesFor('legacy.forward.failed')).toHaveLength(1);
+        expect(linesFor('legacy.forward.failed')[0]?.meta).toMatchObject({ status: 504 });
+        expect(linesFor('legacy.forward.completed')).toHaveLength(0);
+    });
+
+    it('logs a client that hangs up mid-response as aborted, not as completed', async () => {
+        // Arrange: a long timeout, so only the client ends this request
+        const server = await mountForwarder(true, 5000);
+        const { port } = server.address() as AddressInfo;
+        logged.length = 0;
+
+        // Act
+        await new Promise<void>((resolve) => {
+            const clientRequest = httpRequest(
+                { host: '127.0.0.1', port, path: '/v1/legacy/half-body' },
+                (res) => {
+                    res.on('data', () => clientRequest.destroy());
+                    res.on('close', () => resolve());
+                },
+            );
+            clientRequest.on('error', () => resolve());
+            clientRequest.end();
+        });
+
+        // Assert
+        await waitForLine('legacy.forward.aborted');
+        expect(linesFor('legacy.forward.aborted')[0]?.level).toBe('warn');
+        expect(linesFor('legacy.forward.aborted')[0]?.meta).toMatchObject({
+            method: 'GET',
+            path: '/v1/legacy/half-body',
+            status: 200,
+        });
+        expect(linesFor('legacy.forward.completed')).toHaveLength(0);
+    });
+
+    it('logs nothing per request when LEGACY_LOG_REQUESTS is off', async () => {
+        // Arrange
+        const server = await mountForwarder(false, 200);
+        logged.length = 0;
+
+        // Act
+        await request(server).get('/v1/legacy/echo');
+
+        // Assert
+        expect(logged).toHaveLength(0);
+    });
+
+    it('still logs failures when LEGACY_LOG_REQUESTS is off', async () => {
+        // Arrange
+        const server = await mountForwarder(false, 200);
+        logged.length = 0;
+
+        // Act
+        await request(server).get('/v1/legacy/stall');
+
+        // Assert
+        expect(linesFor('legacy.forward.failed')).toHaveLength(1);
     });
 
     it('round-trips a multi-megabyte body without buffering it', async () => {

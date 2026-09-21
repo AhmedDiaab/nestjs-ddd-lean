@@ -18,14 +18,15 @@ this.logger.warn('db.rollback.failed', { sourceKey: 'main', tag: 'tickets.save',
 
 ## What gets logged automatically
 
-| Event                                          | Level                                                                                       |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| Every HTTP request (pino-http access log)      | `info`; `warn` for 4xx; `error` for 5xx                                                     |
-| Successful `/health` and `/health/ready` polls | not logged (monitoring noise)                                                               |
-| Exceptions handled by `GlobalExceptionFilter`  | `warn` 4xx, `error` 5xx, with cause and origin; trimmed stack when `SHOW_STACK_TRACES=true` |
-| Pool created/closed, boot pings                | `info` / `warn` / `error`                                                                   |
-| Slow queries (`slowQueryMs`)                   | `warn` `db.query.slow`                                                                      |
-| Context clear failure (connection dropped)     | `warn` `db.context.clear.failed`                                                            |
+| Event                                          | Level                                                                                                                              |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Every HTTP request (pino-http access log)      | `info`; `warn` for 4xx; `error` for 5xx                                                                                            |
+| Successful `/health` and `/health/ready` polls | not logged (monitoring noise)                                                                                                      |
+| Exceptions handled by `GlobalExceptionFilter`  | `warn` 4xx, `error` 5xx, with cause and origin; trimmed stack when `SHOW_STACK_TRACES=true`                                        |
+| Pool created/closed, boot pings                | `info` / `warn` / `error`                                                                                                          |
+| Slow queries (`slowQueryMs`)                   | `warn` `db.query.slow`                                                                                                             |
+| Context clear failure (connection dropped)     | `warn` `db.context.clear.failed`                                                                                                   |
+| Requests forwarded to a legacy service         | `info` `legacy.forward.completed`; `warn` `legacy.forward.aborted`; `error` `legacy.forward.failed` — in their own file, see below |
 
 Request logs include method, URL, request id, client IP, user agent, status and `latencyMs`. The `authorization`, `cookie` and `set-cookie` headers are removed.
 
@@ -56,9 +57,41 @@ See [decision 0010](../decisions/0010-error-origin.md) for why this is one frame
 | Output                                                                              | When                                                               |
 | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
 | `logs/app.log` (pino-roll: daily + `LOGGING_MAX_SIZE`, keeps `LOGGING_FILES_LIMIT`) | `LOGGING_TO_FILE=true` (default)                                   |
+| `logs/legacy-forward.log` (same rotation, `LEGACY_LOG_FILE_NAME`)                   | `LEGACY_FORWARD_ENABLED=true` and `LOGGING_TO_FILE=true`           |
 | stdout, pretty                                                                      | `LOGGING_PRETTY=true`, or development, and `pino-pretty` installed |
 | stdout, JSON                                                                        | otherwise                                                          |
 
 Transport targets run in worker threads, so logging doesn't block requests.
+
+### The legacy forwarding log
+
+Forwarded requests ([Legacy forwarding](configuration.md#legacy-forwarding)) are answered by
+`LegacyForwarder` before Nest's router, so pino-http's access log never sees them: without this
+file they leave no trace at all. They get one of their own instead of a share of `app.log` — same
+directory, level and rotation, different file name — so the migration's own traffic is readable
+without filtering this service's requests out of it. `PinoFileLogger`
+(`src/infrastructure/logging/pino-file-logger.ts`) is built directly in `src/main.ts`, like
+`PinoProcessLogger`, because the forwarder is wired with `app.use()` outside DI and request
+context.
+
+| Event                      | Level   | When                                                                                      |
+| -------------------------- | ------- | ----------------------------------------------------------------------------------------- |
+| `legacy.forward.completed` | `info`  | the legacy service answered; carries its status, 2xx through 5xx alike                    |
+| `legacy.forward.aborted`   | `warn`  | the client hung up before the response was complete                                       |
+| `legacy.forward.failed`    | `error` | this hop itself failed: 502 (connection refused, DNS, reset) or 504 (`LEGACY_TIMEOUT_MS`) |
+
+A forwarded request produces **exactly one** of these: a hop that fails after the legacy service
+has already sent its status is `failed`, never also `completed`. Every line carries the method,
+path, `requestId` (from `REQUEST_ID_HEADER`, or generated) and `latencyMs` — and nothing else: no
+body, header or query string, which can carry tokens, cookies or PII
+([decision 0013](../decisions/0013-legacy-forwarder-is-dumb-transport.md)).
+
+`LEGACY_LOG_REQUESTS=false` drops the per-request lines (`completed` and `aborted`) and keeps
+`legacy.forward.failed`, this hop's own signal. `LEGACY_LOG_FILE_NAME` must be a bare file name
+and must differ from `LOGGING_FILE_NAME` — two pino-roll transports on one file would interleave
+their lines and race each other's rotation — and boot fails with the variable named if it doesn't.
+With `LOGGING_TO_FILE=false` there is no file to separate from, so these lines go to the console
+with everything else. Under `CLUSTER_ENABLED` every worker appends to the same file, exactly as
+they do for `app.log`.
 
 Configuration: [Configuration → Logging](configuration.md#logging).

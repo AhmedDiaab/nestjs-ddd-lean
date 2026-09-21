@@ -36,6 +36,24 @@ describe('loadConfig', () => {
         expect(readEnvFiles).toHaveBeenCalledTimes(1);
     });
 
+    // Two pino-roll transports on one file would interleave their lines and race each other's
+    // rotation — the opposite of what a separate forwarding log is for.
+    it('refuses a legacy forwarding log pointed at the application log file', () => {
+        // Arrange
+        process.env = {
+            ...BASE_ENV,
+            LOGGING_FILE_NAME: 'app.log',
+            LEGACY_LOG_FILE_NAME: 'app.log',
+        };
+
+        // Act
+        const load = () => loadConfig();
+
+        // Assert
+        expect(load).toThrow(InvalidConfigError);
+        expect(load).toThrow(/LEGACY_LOG_FILE_NAME/);
+    });
+
     it('leaves the env file alone under test, where specs set process.env themselves', () => {
         // Arrange: BASE_ENV already sets NODE_ENV to test
 
