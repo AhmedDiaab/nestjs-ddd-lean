@@ -13,8 +13,32 @@ describe('legacySchema', () => {
             forwardEnabled: false,
             forwardPrefixes: [],
             preserveHostHeader: false,
+            logRequests: true,
+            logFileName: 'legacy-forward.log',
         });
         expect(parsed.targetUrl).toBeUndefined();
+    });
+
+    it('keeps the forwarding log in a file of its own, separate from the application log', () => {
+        // Arrange
+        const input = { logFileName: 'strangler.log' };
+
+        // Act
+        const parsed = legacySchema.parse(input);
+
+        // Assert
+        expect(parsed.logFileName).toBe('strangler.log');
+    });
+
+    it('accepts request logging turned off', () => {
+        // Arrange
+        const input = { logRequests: false };
+
+        // Act
+        const parsed = legacySchema.parse(input);
+
+        // Assert
+        expect(parsed.logRequests).toBe(false);
     });
 
     it('rejects enabled without a target URL or prefixes, naming the missing variables', () => {

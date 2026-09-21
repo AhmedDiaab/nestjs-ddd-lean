@@ -1,6 +1,11 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { join } from 'node:path';
 import type { ConfigPort } from '@application/ports';
-import { generatePinoOptions, isHealthCheck } from '@infrastructure/logging/pino.options';
+import {
+    createDedicatedFileTargets,
+    generatePinoOptions,
+    isHealthCheck,
+} from '@infrastructure/logging/pino.options';
 import type { Options as PinoHttpOptions } from 'pino-http';
 
 describe('pino options', () => {
@@ -21,6 +26,51 @@ describe('pino options', () => {
 
         // Assert
         expect(result).toBe(expected);
+    });
+
+    describe('createDedicatedFileTargets', () => {
+        const configWith = (values: Record<string, unknown>): ConfigPort =>
+            ({
+                get: (key: string) => values[key],
+                isDevelopment: () => false,
+                isProduction: () => true,
+                all: () => values,
+            }) as unknown as ConfigPort;
+
+        it('writes to its own rotated file, not the application log', () => {
+            // Arrange
+            const config = configWith({
+                'logging.toFile': true,
+                'logging.directory': 'logs',
+                'logging.fileName': 'app.log',
+                'logging.filesLimit': 14,
+                'logging.maxSize': '10m',
+                'logging.logLevel': 'info',
+            });
+
+            // Act
+            const targets = createDedicatedFileTargets(config, 'legacy-forward.log');
+
+            // Assert
+            expect(targets).toHaveLength(1);
+            expect(targets[0]?.target).toBe('pino-roll');
+            expect(targets[0]?.options).toMatchObject({
+                file: join('logs', 'legacy-forward.log'),
+                limit: { count: 15 },
+            });
+        });
+
+        it('falls back to the console when file logging is off, instead of dropping the lines', () => {
+            // Arrange
+            const config = configWith({ 'logging.toFile': false, 'logging.logLevel': 'info' });
+
+            // Act
+            const targets = createDedicatedFileTargets(config, 'legacy-forward.log');
+
+            // Assert
+            expect(targets).toHaveLength(1);
+            expect(targets[0]?.target).not.toBe('pino-roll');
+        });
     });
 
     describe('customLogLevel', () => {

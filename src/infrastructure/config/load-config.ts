@@ -102,6 +102,8 @@ function hydrate() {
             forwardPrefixes: envList(env.LEGACY_FORWARD_PREFIXES),
             timeoutMs: envString(env.LEGACY_TIMEOUT_MS),
             preserveHostHeader: envBool(env.LEGACY_PRESERVE_HOST_HEADER),
+            logRequests: envBool(env.LEGACY_LOG_REQUESTS),
+            logFileName: envString(env.LEGACY_LOG_FILE_NAME),
         },
         scheduler: {
             enabled: envBool(env.SCHEDULER_ENABLED),

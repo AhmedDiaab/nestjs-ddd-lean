@@ -7,6 +7,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '@src/app.module';
 import cookieParser from 'cookie-parser';
+import type { Request, Response } from 'express';
 import helmet from 'helmet';
 import request from 'supertest';
 
@@ -17,12 +18,18 @@ describe('Legacy forwarding (e2e)', () => {
     let upstream: Server;
     let upstreamPort: number;
     let capturedHeaders: IncomingMessage['headers'] = {};
-    const loggedErrors: Array<{ message: string; meta: unknown }> = [];
+    type LogLine = { level: 'info' | 'warn' | 'error'; message: string; meta: unknown };
+    const logged: LogLine[] = [];
+    const loggedErrors = (): LogLine[] => logged.filter((line) => line.level === 'error');
+    const linesFor = (message: string): LogLine[] =>
+        logged.filter((line) => line.message === message);
+    // The forwarder writes to a PinoFileLogger (its own rotated file) in src/main.ts; here a fake
+    // stands in for it, so the assertions are about what is logged, not where it lands.
     const forwarderLogger: LoggerPort = {
         debug: () => undefined,
-        info: () => undefined,
-        warn: () => undefined,
-        error: (message, meta) => loggedErrors.push({ message, meta }),
+        info: (message, meta) => logged.push({ level: 'info', message, meta }),
+        warn: (message, meta) => logged.push({ level: 'warn', message, meta }),
+        error: (message, meta) => logged.push({ level: 'error', message, meta }),
     };
 
     beforeAll(async () => {
@@ -95,6 +102,7 @@ describe('Legacy forwarding (e2e)', () => {
             timeoutMs: 1000,
             preserveHostHeader: false,
             requestIdHeader: 'x-request-id',
+            logRequests: true,
             logger: forwarderLogger,
         });
         app.use(forwarder.middleware());
@@ -176,7 +184,7 @@ describe('Legacy forwarding (e2e)', () => {
 
     it('returns 504 within the configured timeout when the upstream never responds', async () => {
         // Arrange
-        loggedErrors.length = 0;
+        logged.length = 0;
         const startedAt = Date.now();
 
         // Act
@@ -186,9 +194,91 @@ describe('Legacy forwarding (e2e)', () => {
         // Assert: well within the suite's own timeout, and never full-hangs
         expect(res.status).toBe(504);
         expect(elapsedMs).toBeLessThan(3000);
-        expect(loggedErrors).toHaveLength(1);
-        expect(loggedErrors[0]?.message).toBe('legacy.forward.failed');
-        expect(loggedErrors[0]?.meta).toMatchObject({ status: 504 });
+        expect(loggedErrors()).toHaveLength(1);
+        expect(loggedErrors()[0]?.message).toBe('legacy.forward.failed');
+        expect(loggedErrors()[0]?.meta).toMatchObject({ status: 504 });
+    });
+
+    it('logs one line per forwarded request, with the status, latency and correlation id', async () => {
+        // Arrange
+        logged.length = 0;
+
+        // Act
+        await request(app.getHttpServer())
+            .get('/v1/legacy/echo')
+            .set('x-request-id', 'trace-legacy-log');
+
+        // Assert
+        const completed = linesFor('legacy.forward.completed');
+        expect(completed).toHaveLength(1);
+        expect(completed[0]?.level).toBe('info');
+        expect(completed[0]?.meta).toMatchObject({
+            method: 'GET',
+            path: '/v1/legacy/echo',
+            status: 201,
+            requestId: 'trace-legacy-log',
+        });
+        expect((completed[0]?.meta as { latencyMs: number }).latencyMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it('logs the legacy status as it was, without turning a 500 into a failure of this hop', async () => {
+        // Arrange
+        logged.length = 0;
+
+        // Act
+        await request(app.getHttpServer()).get('/v1/legacy/boom');
+
+        // Assert
+        expect(linesFor('legacy.forward.completed')[0]?.meta).toMatchObject({ status: 500 });
+        expect(loggedErrors()).toHaveLength(0);
+    });
+
+    it('never logs the query string, a header or a body', async () => {
+        // Arrange
+        logged.length = 0;
+
+        // Act
+        await request(app.getHttpServer())
+            .get('/v1/legacy/echo?token=super-secret')
+            .set('Authorization', 'Bearer legacy-token');
+
+        // Assert
+        const serialized = JSON.stringify(logged);
+        expect(serialized).not.toContain('super-secret');
+        expect(serialized).not.toContain('legacy-token');
+    });
+
+    it('stays silent per request when LEGACY_LOG_REQUESTS is off, but still logs failures', async () => {
+        // Arrange: a second forwarder with logRequests off, mounted on a bare http server —
+        // express is not a direct dependency here, so the two fields it would add are set by hand
+        const quiet = new LegacyForwarder({
+            targetUrl: `http://127.0.0.1:${upstreamPort}`,
+            forwardPrefixes: ['/v1/legacy'],
+            timeoutMs: 200,
+            preserveHostHeader: false,
+            requestIdHeader: 'x-request-id',
+            logRequests: false,
+            logger: forwarderLogger,
+        });
+        const quietServer = createServer((req: IncomingMessage, res: ServerResponse) => {
+            const path = (req.url ?? '/').split('?')[0];
+            Object.assign(req, { path, protocol: 'http', originalUrl: req.url });
+            quiet.middleware()(req as unknown as Request, res as unknown as Response, () => {
+                res.writeHead(404);
+                res.end();
+            });
+        });
+        await new Promise<void>((resolve) => quietServer.listen(0, '127.0.0.1', resolve));
+        logged.length = 0;
+
+        // Act
+        await request(quietServer).get('/v1/legacy/echo');
+        await request(quietServer).get('/v1/legacy/stall');
+
+        // Assert
+        await new Promise<void>((resolve) => quietServer.close(() => resolve()));
+        expect(linesFor('legacy.forward.completed')).toHaveLength(0);
+        expect(linesFor('legacy.forward.failed')).toHaveLength(1);
     });
 
     it('round-trips a multi-megabyte body without buffering it', async () => {

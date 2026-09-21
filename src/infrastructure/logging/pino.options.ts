@@ -9,11 +9,8 @@ import type { Response } from 'express';
 import type { Params } from 'nestjs-pino';
 import type { TransportTargetOptions } from 'pino';
 
-function fileRotationTarget(config: ConfigPort): TransportTargetOptions | undefined {
-    if (!config.get('logging.toFile')) return undefined;
-
+function rollingFileTarget(config: ConfigPort, fileName: string): TransportTargetOptions {
     const logDirectory = config.get('logging.directory');
-    const logFileName = config.get('logging.fileName');
     const logFilesLimit = config.get('logging.filesLimit');
     const maxSize = config.get('logging.maxSize');
 
@@ -21,7 +18,7 @@ function fileRotationTarget(config: ConfigPort): TransportTargetOptions | undefi
         target: 'pino-roll',
         level: config.get('logging.logLevel'),
         options: {
-            file: join(logDirectory, logFileName),
+            file: join(logDirectory, fileName),
             frequency: 'daily',
             mkdir: true,
             size: maxSize,
@@ -31,6 +28,12 @@ function fileRotationTarget(config: ConfigPort): TransportTargetOptions | undefi
             dateFormat: 'yyyy-MM-dd',
         },
     };
+}
+
+function fileRotationTarget(config: ConfigPort): TransportTargetOptions | undefined {
+    if (!config.get('logging.toFile')) return undefined;
+
+    return rollingFileTarget(config, config.get('logging.fileName'));
 }
 
 function isResolvable(moduleName: string): boolean {
@@ -73,6 +76,22 @@ export function createTransportTargets(config: ConfigPort): TransportTargetOptio
     return [fileRotationTarget(config), consoleTarget(config)].filter(
         (target): target is TransportTargetOptions => !!target,
     );
+}
+
+/**
+ * Targets for a log stream of its own, kept out of the application log: one rotated file named by
+ * the caller, under the same `logging.directory` and with the same rotation settings as `app.log`.
+ * Used by `PinoFileLogger` (`pino-file-logger.ts`) — today, the legacy forwarder's access log.
+ * With `LOGGING_TO_FILE=false` (containers that collect stdout, and the test suite) there is no
+ * file to separate, so the lines fall back to the console target rather than being dropped.
+ */
+export function createDedicatedFileTargets(
+    config: ConfigPort,
+    fileName: string,
+): TransportTargetOptions[] {
+    return config.get('logging.toFile')
+        ? [rollingFileTarget(config, fileName)]
+        : [consoleTarget(config)];
 }
 
 /**
