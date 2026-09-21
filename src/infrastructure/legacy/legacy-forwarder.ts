@@ -7,6 +7,20 @@ import type { NextFunction, Request, Response } from 'express';
 import { buildForwardHeaders, stripHopByHopHeaders } from './forward-headers.util';
 import { matchesLegacyPrefix } from './matches-prefix.util';
 
+/**
+ * How a forwarded request ended: the legacy service answered (`completed`, whatever its status),
+ * the client hung up first (`aborted`), or this hop itself failed (`failed`, 502/504).
+ */
+type ForwardOutcome = 'completed' | 'aborted' | 'failed';
+
+type ForwardLogContext = {
+    req: Request;
+    requestId: string;
+    startedAt: number;
+    /** Absent when the request ended before the legacy service sent a status. */
+    status?: number;
+};
+
 export type LegacyForwarderOptions = {
     /** Base URL of the legacy service, e.g. `http://legacy-host:8080`. */
     targetUrl: string;
@@ -94,7 +108,15 @@ export class LegacyForwarder {
         });
 
         let timedOut = false;
-        let clientAborted = false;
+        // Exactly one outcome per forwarded request: a failure after the response started would
+        // otherwise also arrive as a `close` on the response and be logged a second time, as a
+        // completed forward carrying the status the legacy service had already sent.
+        let settled = false;
+        const settle = (outcome: ForwardOutcome, status?: number): void => {
+            if (settled) return;
+            settled = true;
+            this.logOutcome(outcome, { req, requestId, startedAt, status });
+        };
 
         outbound.on('timeout', () => {
             timedOut = true;
@@ -109,25 +131,29 @@ export class LegacyForwarder {
             const status = upstream.statusCode ?? 502;
             res.writeHead(status, stripHopByHopHeaders(upstream.headers));
             // Logged on 'close' rather than here: the status is known now, but the latency is
-            // only meaningful once the body has actually finished streaming to the client.
+            // only meaningful once the body has actually finished streaming to the client — and
+            // `close` is the one event that covers both endings, `writableFinished` telling them
+            // apart. A client that hangs up mid-response emits nothing else: `aborted` on the
+            // REQUEST only fires while the request message itself is incomplete (and is
+            // deprecated since Node 17), so it never sees the ordinary GET-abort case.
             res.on('close', () => {
-                // A client that hung up mid-body already logged `legacy.forward.aborted`.
-                if (clientAborted) return;
-                this.logCompleted(req, { requestId, status, startedAt });
+                if (res.writableFinished) {
+                    settle('completed', status);
+                    return;
+                }
+                settle('aborted', status);
+                // The client is gone; the upstream socket must not stay open for a body nobody
+                // will read.
+                outbound.destroy();
             });
             upstream.pipe(res);
         });
 
         outbound.on('error', () => {
             const status = timedOut ? 504 : 502;
-            // A client that hung up is not a legacy-service failure: it is logged as its own
-            // event (below) so `legacy.forward.failed` stays a signal about the legacy hop.
-            if (!clientAborted) {
-                this.options.logger.error('legacy.forward.failed', {
-                    ...this.logMetaFor(req, requestId, startedAt),
-                    status,
-                });
-            }
+            // A client that hung up first has already settled as `aborted`: that is not a
+            // legacy-service failure, and `legacy.forward.failed` stays a signal about this hop.
+            settle('failed', status);
             if (!res.headersSent) {
                 res.writeHead(status, { 'content-type': 'text/plain' });
                 res.end(status === 504 ? 'Gateway Timeout' : 'Bad Gateway');
@@ -136,43 +162,35 @@ export class LegacyForwarder {
             }
         });
 
-        // The client disconnecting mid-request must not leave the outbound socket open.
+        // A client that disconnects while still sending its request must not leave the outbound
+        // socket open. This is the upload-phase abort; the response-phase one is handled above.
         req.on('aborted', () => {
-            clientAborted = true;
-            if (this.options.logRequests) {
-                this.options.logger.warn('legacy.forward.aborted', {
-                    ...this.logMetaFor(req, requestId, startedAt),
-                });
-            }
+            settle('aborted');
             outbound.destroy();
         });
 
         req.pipe(outbound);
     }
 
-    private logCompleted(
-        req: Request,
-        context: { requestId: string; status: number; startedAt: number },
-    ): void {
-        if (!this.options.logRequests) return;
-        this.options.logger.info('legacy.forward.completed', {
-            ...this.logMetaFor(req, context.requestId, context.startedAt),
-            status: context.status,
-        });
-    }
+    /**
+     * One line per forwarded request: the method, path, correlation id, latency and — when it is
+     * known — the status, never a body, header or query string (they can carry tokens, cookies or
+     * PII). `LEGACY_LOG_REQUESTS=false` keeps only `legacy.forward.failed`, this hop's own signal.
+     */
+    private logOutcome(outcome: ForwardOutcome, context: ForwardLogContext): void {
+        if (outcome !== 'failed' && !this.options.logRequests) return;
 
-    /** Method, path, correlation id and latency — never a body, header or query string. */
-    private logMetaFor(
-        req: Request,
-        requestId: string,
-        startedAt: number,
-    ): Record<string, unknown> {
-        return {
-            method: req.method,
-            path: req.path,
-            requestId,
-            latencyMs: Date.now() - startedAt,
+        const meta = {
+            method: context.req.method,
+            path: context.req.path,
+            requestId: context.requestId,
+            latencyMs: Date.now() - context.startedAt,
+            ...(context.status === undefined ? {} : { status: context.status }),
         };
+
+        if (outcome === 'failed') this.options.logger.error('legacy.forward.failed', meta);
+        else if (outcome === 'aborted') this.options.logger.warn('legacy.forward.aborted', meta);
+        else this.options.logger.info('legacy.forward.completed', meta);
     }
 
     /** A caller may supply the correlation id, but not arbitrary bytes; see `isSafeCorrelationId`. */

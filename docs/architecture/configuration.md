@@ -107,8 +107,8 @@ a gateway — see [decision 0013](../decisions/0013-legacy-forwarder-is-dumb-tra
 | `LEGACY_FORWARD_PREFIXES`     | `[]`                 | comma-separated path prefixes forwarded as-is; everything else still answers through this app (`FallbackController` still returns 404 for genuinely unknown paths) |
 | `LEGACY_TIMEOUT_MS`           | `10000`              | per request to the legacy service; keep it below a typical VIP's request timeout (often 30-60s)                                                                    |
 | `LEGACY_PRESERVE_HOST_HEADER` | `false`              | forward the client's original `Host` header instead of the legacy target's                                                                                         |
-| `LEGACY_LOG_REQUESTS`         | `true`               | log one line per forwarded request; failures are logged either way                                                                                                 |
-| `LEGACY_LOG_FILE_NAME`        | `legacy-forward.log` | forwarding log file inside `LOGGING_DIR`, rotated with `LOGGING_FILES_LIMIT`/`LOGGING_MAX_SIZE`                                                                    |
+| `LEGACY_LOG_REQUESTS`         | `true`               | log one line per forwarded request; `legacy.forward.failed` is logged either way                                                                                   |
+| `LEGACY_LOG_FILE_NAME`        | `legacy-forward.log` | forwarding log file inside `LOGGING_DIR`, rotated with `LOGGING_FILES_LIMIT`/`LOGGING_MAX_SIZE`; a bare file name, and boot fails if it equals `LOGGING_FILE_NAME` |
 
 Wired with `app.use()` in `src/main.ts` — the composition root, not `src/interface` (the ESLint
 layer fence forbids the interface layer from importing infrastructure) — immediately after

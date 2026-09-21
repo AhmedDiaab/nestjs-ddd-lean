@@ -80,10 +80,18 @@ context.
 | `legacy.forward.aborted`   | `warn`  | the client hung up before the response was complete                                       |
 | `legacy.forward.failed`    | `error` | this hop itself failed: 502 (connection refused, DNS, reset) or 504 (`LEGACY_TIMEOUT_MS`) |
 
-Every line carries the method, path, `requestId` (from `REQUEST_ID_HEADER`, or generated) and
-`latencyMs` — and nothing else: no body, header or query string, which can carry tokens, cookies
-or PII ([decision 0013](../decisions/0013-legacy-forwarder-is-dumb-transport.md)). Set
-`LEGACY_LOG_REQUESTS=false` to keep only the failures. With `LOGGING_TO_FILE=false` there is no
-file to separate from, so these lines go to the console with everything else.
+A forwarded request produces **exactly one** of these: a hop that fails after the legacy service
+has already sent its status is `failed`, never also `completed`. Every line carries the method,
+path, `requestId` (from `REQUEST_ID_HEADER`, or generated) and `latencyMs` — and nothing else: no
+body, header or query string, which can carry tokens, cookies or PII
+([decision 0013](../decisions/0013-legacy-forwarder-is-dumb-transport.md)).
+
+`LEGACY_LOG_REQUESTS=false` drops the per-request lines (`completed` and `aborted`) and keeps
+`legacy.forward.failed`, this hop's own signal. `LEGACY_LOG_FILE_NAME` must be a bare file name
+and must differ from `LOGGING_FILE_NAME` — two pino-roll transports on one file would interleave
+their lines and race each other's rotation — and boot fails with the variable named if it doesn't.
+With `LOGGING_TO_FILE=false` there is no file to separate from, so these lines go to the console
+with everything else. Under `CLUSTER_ENABLED` every worker appends to the same file, exactly as
+they do for `app.log`.
 
 Configuration: [Configuration → Logging](configuration.md#logging).

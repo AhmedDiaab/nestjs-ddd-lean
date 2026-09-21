@@ -69,8 +69,13 @@ to run: whatever the legacy service does today, right or wrong, the client sees 
   carrying whatever status the legacy service returned), `legacy.forward.aborted` (`warn`, the
   client hung up) and `legacy.forward.failed` (`error`, this hop) all carry the same four fields —
   method, path, request id, `latencyMs` — under the rule above: no body, header or query string.
-  `LEGACY_LOG_REQUESTS=false` keeps only the failures, for a forwarded path whose volume makes the
-  per-request line worthless.
+  A request settles **once**: a hop that dies after the legacy service has already sent a status
+  is `failed` only, never also `completed`, or the truncated response would read in the log as the
+  successful 200 it started out as. The two endings are told apart on the response's `close` by
+  `writableFinished` rather than by `'aborted'` on the request, which only fires while the request
+  message itself is incomplete and so never sees an ordinary client hang-up mid-response.
+  `LEGACY_LOG_REQUESTS=false` drops the per-request lines (`completed`, `aborted`) and keeps
+  `legacy.forward.failed`, for a forwarded path whose volume makes the per-request line worthless.
 - **Streams with `node:http`/`node:https`, buffering nothing.** A hop whose entire job is "don't
   look at the bytes" cannot call `.text()`/`.json()` on the response the way a gateway that needs
   a typed body to map would — that would cap what a forwarded route can carry at whatever this

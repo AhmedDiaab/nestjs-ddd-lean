@@ -33,8 +33,17 @@ export const legacySchema = z
          * `LOGGING_FILES_LIMIT`/`LOGGING_MAX_SIZE` as the application log. Separate from
          * `LOGGING_FILE_NAME` on purpose: legacy traffic is the migration's own ledger, and
          * mixing it into `app.log` buries it under this service's own requests.
+         *
+         * A bare file name, not a path: it is joined onto `LOGGING_DIR`, and a `/` or `..` here
+         * would write the log outside the directory operators collect and rotate.
          */
-        logFileName: z.string().min(1).default('legacy-forward.log'),
+        logFileName: z
+            .string()
+            .regex(
+                /^[\w.-]+$/,
+                'LEGACY_LOG_FILE_NAME must be a bare file name inside LOGGING_DIR (letters, digits, dot, dash, underscore)',
+            )
+            .default('legacy-forward.log'),
     })
     .superRefine((legacy, ctx) => {
         if (!legacy.forwardEnabled) return;

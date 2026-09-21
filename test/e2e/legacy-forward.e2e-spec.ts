@@ -1,4 +1,10 @@
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import {
+    createServer,
+    request as httpRequest,
+    type IncomingMessage,
+    type Server,
+    type ServerResponse,
+} from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { LoggerPort } from '@application/ports';
 import { LegacyForwarder } from '@infrastructure/legacy';
@@ -32,6 +38,40 @@ describe('Legacy forwarding (e2e)', () => {
         error: (message, meta) => logged.push({ level: 'error', message, meta }),
     };
 
+    // express is not a direct dependency of this template, so a forwarder that needs a server of
+    // its own is mounted on node:http, with the two fields express would have added set by hand.
+    const bareServers: Server[] = [];
+    const mountForwarder = async (logRequests: boolean, timeoutMs: number): Promise<Server> => {
+        const forwarder = new LegacyForwarder({
+            targetUrl: `http://127.0.0.1:${upstreamPort}`,
+            forwardPrefixes: ['/v1/legacy'],
+            timeoutMs,
+            preserveHostHeader: false,
+            requestIdHeader: 'x-request-id',
+            logRequests,
+            logger: forwarderLogger,
+        });
+        const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+            const path = (req.url ?? '/').split('?')[0];
+            Object.assign(req, { path, protocol: 'http', originalUrl: req.url });
+            forwarder.middleware()(req as unknown as Request, res as unknown as Response, () => {
+                res.writeHead(404);
+                res.end();
+            });
+        });
+        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+        bareServers.push(server);
+        return server;
+    };
+
+    const waitForLine = async (message: string): Promise<void> => {
+        for (let attempt = 0; attempt < 200; attempt++) {
+            if (linesFor(message).length > 0) return;
+            await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        throw new Error(`timed out waiting for ${message}`);
+    };
+
     beforeAll(async () => {
         Object.assign(process.env, {
             NODE_ENV: 'test',
@@ -63,6 +103,15 @@ describe('Legacy forwarding (e2e)', () => {
                 req.resume();
                 res.writeHead(500, { 'content-type': 'text/plain' });
                 res.end('legacy failure');
+                return;
+            }
+
+            if (path === '/v1/legacy/half-body') {
+                req.resume();
+                // Headers and part of the body, then nothing: the response starts and never ends,
+                // so this hop fails (or the client hangs up) AFTER the status has been sent on.
+                res.writeHead(200, { 'content-type': 'text/plain' });
+                res.write('first chunk');
                 return;
             }
 
@@ -117,6 +166,9 @@ describe('Legacy forwarding (e2e)', () => {
 
     afterAll(async () => {
         await app.close();
+        for (const server of bareServers) {
+            await new Promise<void>((resolve) => server.close(() => resolve()));
+        }
         await new Promise<void>((resolve) => upstream.close(() => resolve()));
     });
 
@@ -248,36 +300,75 @@ describe('Legacy forwarding (e2e)', () => {
         expect(serialized).not.toContain('legacy-token');
     });
 
-    it('stays silent per request when LEGACY_LOG_REQUESTS is off, but still logs failures', async () => {
-        // Arrange: a second forwarder with logRequests off, mounted on a bare http server —
-        // express is not a direct dependency here, so the two fields it would add are set by hand
-        const quiet = new LegacyForwarder({
-            targetUrl: `http://127.0.0.1:${upstreamPort}`,
-            forwardPrefixes: ['/v1/legacy'],
-            timeoutMs: 200,
-            preserveHostHeader: false,
-            requestIdHeader: 'x-request-id',
-            logRequests: false,
-            logger: forwarderLogger,
-        });
-        const quietServer = createServer((req: IncomingMessage, res: ServerResponse) => {
-            const path = (req.url ?? '/').split('?')[0];
-            Object.assign(req, { path, protocol: 'http', originalUrl: req.url });
-            quiet.middleware()(req as unknown as Request, res as unknown as Response, () => {
-                res.writeHead(404);
-                res.end();
-            });
-        });
-        await new Promise<void>((resolve) => quietServer.listen(0, '127.0.0.1', resolve));
+    it('logs a failure that happens after the response started once, not also as completed', async () => {
+        // Arrange: the upstream sends headers and a chunk, then stalls past the 1s timeout
         logged.length = 0;
 
         // Act
-        await request(quietServer).get('/v1/legacy/echo');
-        await request(quietServer).get('/v1/legacy/stall');
+        await request(app.getHttpServer())
+            .get('/v1/legacy/half-body')
+            .catch(() => undefined); // the truncated response rejects in the client
+
+        // Assert: the status the legacy service had already sent must not read as a success
+        await waitForLine('legacy.forward.failed');
+        // the response is destroyed after the failure is logged; its 'close' lands a tick later
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(linesFor('legacy.forward.failed')).toHaveLength(1);
+        expect(linesFor('legacy.forward.failed')[0]?.meta).toMatchObject({ status: 504 });
+        expect(linesFor('legacy.forward.completed')).toHaveLength(0);
+    });
+
+    it('logs a client that hangs up mid-response as aborted, not as completed', async () => {
+        // Arrange: a long timeout, so only the client ends this request
+        const server = await mountForwarder(true, 5000);
+        const { port } = server.address() as AddressInfo;
+        logged.length = 0;
+
+        // Act
+        await new Promise<void>((resolve) => {
+            const clientRequest = httpRequest(
+                { host: '127.0.0.1', port, path: '/v1/legacy/half-body' },
+                (res) => {
+                    res.on('data', () => clientRequest.destroy());
+                    res.on('close', () => resolve());
+                },
+            );
+            clientRequest.on('error', () => resolve());
+            clientRequest.end();
+        });
 
         // Assert
-        await new Promise<void>((resolve) => quietServer.close(() => resolve()));
+        await waitForLine('legacy.forward.aborted');
+        expect(linesFor('legacy.forward.aborted')[0]?.level).toBe('warn');
+        expect(linesFor('legacy.forward.aborted')[0]?.meta).toMatchObject({
+            method: 'GET',
+            path: '/v1/legacy/half-body',
+            status: 200,
+        });
         expect(linesFor('legacy.forward.completed')).toHaveLength(0);
+    });
+
+    it('logs nothing per request when LEGACY_LOG_REQUESTS is off', async () => {
+        // Arrange
+        const server = await mountForwarder(false, 200);
+        logged.length = 0;
+
+        // Act
+        await request(server).get('/v1/legacy/echo');
+
+        // Assert
+        expect(logged).toHaveLength(0);
+    });
+
+    it('still logs failures when LEGACY_LOG_REQUESTS is off', async () => {
+        // Arrange
+        const server = await mountForwarder(false, 200);
+        logged.length = 0;
+
+        // Act
+        await request(server).get('/v1/legacy/stall');
+
+        // Assert
         expect(linesFor('legacy.forward.failed')).toHaveLength(1);
     });
 

@@ -30,6 +30,21 @@ describe('legacySchema', () => {
         expect(parsed.logFileName).toBe('strangler.log');
     });
 
+    it('rejects a log file name that would escape LOGGING_DIR', () => {
+        // Arrange
+        const input = { logFileName: '../../etc/legacy.log' };
+
+        // Act
+        const result = legacySchema.safeParse(input);
+
+        // Assert
+        expect(result.success).toBe(false);
+        const messages = result.success ? [] : result.error.issues.map((issue) => issue.message);
+        expect(messages).toEqual(
+            expect.arrayContaining([expect.stringContaining('LEGACY_LOG_FILE_NAME')]),
+        );
+    });
+
     it('accepts request logging turned off', () => {
         // Arrange
         const input = { logRequests: false };
